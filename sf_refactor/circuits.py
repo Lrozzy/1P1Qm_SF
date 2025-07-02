@@ -46,18 +46,6 @@ def default_circuit(prog, wires, weights):
 
 def new_circuit(prog, wires, weights):
     """Added trainable CX Gate parameters.
-
-    Non‑trainable parameters 
-    ----------------------------------------------
-    eta_i, pt_i, phi_i   for i = 0 … wires‑1
-
-    Learnable parameters
-    --------------------
-    s_scale                              (global pT scale factor)
-    cx_theta_{a}_{b}   for each (a,b) ∈ cx_pairs        (CX strength)
-    bs_theta_k, bs_phase_k   k = 0 … 5                  (4‑mode interferometer)
-    squeeze_mag_i , squeeze_phase_i                     (per mode)
-    disp_mag_i   , disp_phase_i                         (per mode)
     """
 
     # data constants 

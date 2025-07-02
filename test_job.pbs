@@ -1,0 +1,44 @@
+#!/bin/bash
+
+#PBS -l select=1:ncpus=4:mem=32gb:ngpus=1
+#PBS -l walltime=01:00:00
+#PBS -N SF_job
+#PBS -j oe
+#PBS -o /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/SF_job.o${PBS_JOBID}
+
+cd $PBS_O_WORKDIR
+
+# Load the necessary modules for Conda and CUDA
+echo "Loading modules..."
+module load anaconda3/personal
+module load cuda/11.4.2
+
+# Activate Conda environment
+echo "Activating Conda environment: quantum-photonic"
+source activate quantum-photonic
+
+# --- Job Diagnostics ---
+echo "--------------------"
+echo "Job started on $(hostname) at $(date)"
+echo "Job ID: ${PBS_JOBID}"
+echo "--------------------"
+echo "Checking GPU status with nvidia-smi:"
+nvidia-smi
+echo "--------------------"
+echo "Checking Python and package versions:"
+which python
+python -c "import tensorflow as tf; print('TensorFlow version:', tf.__version__); print('GPU available:', tf.config.list_physical_devices('GPU'))"
+python -c "import strawberryfields as sf; print('Strawberry Fields version:', sf.__version__)"
+echo "--------------------"
+
+
+# --- Run Your Python Script ---
+echo "Starting Python script..."
+python /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main.py \
+    -name "First_GPU_Test" \
+    --dim_cutoff 10 \
+    --batch_size 32 \
+
+# --- End of Job ---
+echo "--------------------"
+echo "Job finished at $(date)"

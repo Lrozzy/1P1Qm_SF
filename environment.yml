@@ -1,0 +1,23 @@
+name: qml-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  - h5py
+  - matplotlib
+  - mplhep
+  - numpy
+  - scikit-learn
+  - tqdm
+  - hydra-core
+  - loguru
+  - pandas
+  - ipykernel
+  - jupyter
+  - pip:
+    # By installing with pip, it will detect the CUDA drivers
+    # on the compute node and install the GPU-enabled version.
+    - tensorflow
+    - strawberryfields
