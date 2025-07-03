@@ -1,21 +1,28 @@
 #!/bin/bash
 
-#PBS -l select=1:ncpus=4:mem=32gb:ngpus=1
-#PBS -l walltime=01:00:00
+# Use the high-priority development queue w/ #PBS -q devel #PBS -q devel (this doesn't work)
+#PBS -l select=1:ncpus=4:mem=64gb:ngpus=1
+#PBS -l walltime=30:00
 #PBS -N SF_job
+
+# oe merges the job's standard output (`stdout`) and standard error (`stderr`)
 #PBS -j oe
-#PBS -o /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/SF_job.o${PBS_JOBID}
+
+# output path
+#PBS -o /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/SF_job.batch_1
 
 cd $PBS_O_WORKDIR
 
 # Load the necessary modules for Conda and CUDA
-echo "Loading modules..."
-module load anaconda3/personal
-module load cuda/11.4.2
+# echo "Loading modules..."
+# module load CUDA/11.8.0
 
 # Activate Conda environment
-echo "Activating Conda environment: quantum-photonic"
-source activate quantum-photonic
+echo "Initializing Conda for this shell..."
+source ~/miniconda3/etc/profile.d/conda.sh
+
+echo "Activating Conda environment: qml-env"
+conda activate qml-env
 
 # --- Job Diagnostics ---
 echo "--------------------"
@@ -28,7 +35,7 @@ echo "--------------------"
 echo "Checking Python and package versions:"
 which python
 python -c "import tensorflow as tf; print('TensorFlow version:', tf.__version__); print('GPU available:', tf.config.list_physical_devices('GPU'))"
-python -c "import strawberryfields as sf; print('Strawberry Fields version:', sf.__version__)"
+# python -c "import strawberryfields as sf; print('Strawberry Fields version:', sf.__version__)"
 echo "--------------------"
 
 
@@ -36,9 +43,11 @@ echo "--------------------"
 echo "Starting Python script..."
 python /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main.py \
     -name "First_GPU_Test" \
-    --dim_cutoff 10 \
-    --batch_size 32 \
-
+    --dim_cutoff 9 \
+    --train_jets 1000 \
+    --val_jets 200 \
+    --test_jets 500 \
+    --batch_size 1 
 # --- End of Job ---
 echo "--------------------"
 echo "Job finished at $(date)"

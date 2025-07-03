@@ -27,9 +27,10 @@ layers          = 1 # not using right now, but can be used for circuit depth
 epochs          = 10
 learning_rate   = 0.005
 batch_size      = 8 # 
-train_jets      = 1000 # /40000
+train_jets      = 300 # /40000
 val_jets        = 200 # /10000
-test_jets       = 1000 # /20000
+test_jets       = 300 # /20000
+photon_modes    = 4  # number of photon modes to use for extracting features
 
 # Loss function and activation parameters
 loss_fn         = "bce" # loss function: "bce" or "mse"
@@ -61,6 +62,7 @@ parser.add_argument('--which_circuit', type=str, default=which_circuit, help='Ci
 parser.add_argument('--train_jets', type=int, default=train_jets, help='Number of training jets')
 parser.add_argument('--val_jets', type=int, default=val_jets, help='Number of validation jets')
 parser.add_argument('--test_jets', type=int, default=test_jets, help='Number of test jets')
+parser.add_argument('--photon_modes', type=int, default=photon_modes, help='Number of photon modes to use for extracting features')
 parser.add_argument('--data_dir', type=str, default=data_dir, help='Training data file')
 parser.add_argument('--val_dir', type=str, default=val_dir, help='Validation data file')
 parser.add_argument('--test_dir', type=str, default=test_dir, help='Test data file')
@@ -81,6 +83,8 @@ which_circuit = args.which_circuit if args.which_circuit else which_circuit
 train_jets    = args.train_jets if args.train_jets else train_jets
 val_jets      = args.val_jets if args.val_jets else val_jets
 test_jets     = args.test_jets if args.test_jets else test_jets
+photon_modes  = args.photon_modes if args.photon_modes else photon_modes
+photon_modes = min(photon_modes, wires) # Can't have higher photon mode than num wires
 data_dir      = args.data_dir if args.data_dir else data_dir
 val_dir       = args.val_dir if args.val_dir else val_dir
 test_dir      = args.test_dir if args.test_dir else test_dir
@@ -139,6 +143,7 @@ if cli_test == False:
         "train_jets": train_jets,
         "val_jets": val_jets,
         "test_jets": test_jets,
+        "photon_modes": photon_modes,
         "data_dir": data_dir,
         "val_dir": val_dir,
         "test_dir": test_dir,
@@ -170,6 +175,7 @@ print(f"Which circuit: {which_circuit}", flush=True)
 print(f"Train jets: {train_jets}", flush=True)
 print(f"Validation jets: {val_jets}", flush=True)
 print(f"Test jets: {test_jets}", flush=True)
+print(f"Photon modes: {photon_modes}", flush=True)
 print(f"Run name: {run_name}", flush=True)
 print("------------------------------------", flush=True)
 
@@ -191,11 +197,12 @@ phi = [prog.params(f"phi{w}") for w in range(wires)]
 pt  = [prog.params(f"pt{w}")  for w in range(wires)]
 
 # Extra variables for trainable cx gates
-cx_pairs = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
-cx_theta = { (a,b): prog.params(f"cx_theta_{a}_{b}") for (a,b) in cx_pairs }
+cx_pairs = [(i, j) for i in range(wires) for j in range(i+1, wires)]
+cx_theta = {(a,b): prog.params(f"cx_theta_{a}_{b}") for (a,b) in cx_pairs}
 
 # -------- Circuit architecture ----------
 if which_circuit == "new":
+    # weights is misleading since pt, eta, phi are included, consider changing
     weights = {
         's_scale': s_scale,
         **{f'disp_mag_{w}': disp_mag[w] for w in range(wires)},
@@ -232,7 +239,7 @@ tf_squeeze_phase = [tf.Variable(rnd(())) for _ in range(wires)]
 tf_bias = tf.Variable(0.0, dtype=tf.float32) # Trainable bias
 
 # Extra variables for trainable cx gates
-tf_cx_theta = { (a,b): tf.Variable(rnd(())) for (a,b) in cx_pairs }
+tf_cx_theta = {(a,b): tf.Variable(rnd(())) for (a,b) in cx_pairs}
 
 # -------- Feature scaling ----------
 # Define assumed limits for features
@@ -256,16 +263,31 @@ def scale_feature(value, name):
 # Create arguments for the SF program (map symbolic variables to tensors)
 def make_args(jet_batch):
     # This function now accepts a batch of jets
+    
+    # Squeeze the batch dimension if batch_size is 1
+    squeeze = jet_batch.shape[0] == 1
+
     d = {"s_scale": tf_s_scale}
     for w in range(wires):
         d[f"disp_mag{w}"] = tf_disp_mag[w]
         d[f"disp_phase{w}"] = tf_disp_phase[w]
         d[f"squeeze_mag{w}"] = tf_squeeze_mag[w]
         d[f"squeeze_phase{w}"] = tf_squeeze_phase[w]
+        
         # Slicing the batch to get all values for a specific feature across the batch
-        d[f"eta{w}"] = scale_feature(jet_batch[:, w, 0], "eta")
-        d[f"phi{w}"] = scale_feature(jet_batch[:, w, 1], "phi")
-        d[f"pt{w}"]  = scale_feature(jet_batch[:, w, 2], "pt")
+        eta_val = scale_feature(jet_batch[:, w, 0], "eta")
+        phi_val = scale_feature(jet_batch[:, w, 1], "phi")
+        pt_val  = scale_feature(jet_batch[:, w, 2], "pt")
+
+        if squeeze:
+            d[f"eta{w}"] = tf.squeeze(eta_val)
+            d[f"phi{w}"] = tf.squeeze(phi_val)
+            d[f"pt{w}"]  = tf.squeeze(pt_val)
+        else:
+            d[f"eta{w}"] = eta_val
+            d[f"phi{w}"] = phi_val
+            d[f"pt{w}"]  = pt_val
+
     if which_circuit == "new":
         for (a, b) in cx_pairs:
             d[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)]
@@ -273,7 +295,11 @@ def make_args(jet_batch):
 
 opt = tf.keras.optimizers.Adam(learning_rate)
 # print("Starting Engine...", flush=True)
-eng = sf.Engine("tf", backend_options={"cutoff_dim": dim_cutoff, "batch_size": batch_size})
+# SF batch_size cannot be 1 -- instead use None
+sf_batch_size = batch_size
+if batch_size == 1:
+    sf_batch_size = None
+eng = sf.Engine("tf", backend_options={"cutoff_dim": dim_cutoff, "batch_size": sf_batch_size})
 
 # -------- training loop ----------
 print("Starting training...", flush=True)
@@ -281,6 +307,12 @@ print("Starting training...", flush=True)
 # Create a tf.data.Dataset for efficient batching and shuffling
 train_dataset = tf.data.Dataset.from_tensor_slices((jets, labels))
 train_dataset = train_dataset.shuffle(buffer_size=train_jets).batch(batch_size, drop_remainder=True)
+
+# Define var_names outside the loop
+if which_circuit == "new":
+    var_names = ['s_scale'] + [f'disp_mag_{i}' for i in range(wires)] + [f'disp_phase_{i}' for i in range(wires)] + [f'squeeze_mag_{i}' for i in range(wires)] + [f'squeeze_phase_{i}' for i in range(wires)] + [f'cx_theta_{a}_{b}' for a,b in cx_pairs] + ['bias']
+else:
+    var_names = ['s_scale'] + [f'disp_mag_{i}' for i in range(wires)] + [f'disp_phase_{i}' for i in range(wires)] + [f'squeeze_mag_{i}' for i in range(wires)] + [f'squeeze_phase_{i}' for i in range(wires)] + ['bias']
 
 for epoch in range(epochs):
     # Keep track of the loss for this epoch
@@ -303,17 +335,19 @@ for epoch in range(epochs):
             # Run the circuit for the entire batch
             state   = eng.run(prog, args=make_args(jet_batch)).state
             # state.mean_photon(m) returns a tuple (mean, variance), we only want the mean
-            photons = tf.stack([state.mean_photon(m)[0] for m in range(3)], axis=1)
+            photons_list = [state.mean_photon(m)[0] for m in range(photon_modes)]
+            if batch_size == 1:
+                photons = tf.expand_dims(tf.stack(photons_list, axis=0), axis=0)
+            else:
+                photons = tf.stack(photons_list, axis=1)
             # Calculate loss for the batch
             loss_vector, logit_to_prob = get_loss_fn(photons, label_batch, bias=tf_bias, tanh=tanh, loss_type=loss_fn)
             # Average the loss over the batch for a stable gradient
             loss = tf.reduce_mean(loss_vector)
 
         if which_circuit == "new":
-            var_names = ['s_scale'] + [f'disp_mag_{i}' for i in range(wires)] +                 [f'disp_phase_{i}' for i in range(wires)] +                 [f'squeeze_mag_{i}' for i in range(wires)] +                 [f'squeeze_phase_{i}' for i in range(wires)] +                 [f'cx_theta_{a}_{b}' for a,b in cx_pairs] + ['bias']
             vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, *tf_cx_theta.values(), tf_bias]
         else:
-            var_names = ['s_scale'] + [f'disp_mag_{i}' for i in range(wires)] +                 [f'disp_phase_{i}' for i in range(wires)] +                 [f'squeeze_mag_{i}' for i in range(wires)] +                 [f'squeeze_phase_{i}' for i in range(wires)] + ['bias']
             vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, tf_bias]
         grads = tape.gradient(loss, vars_)
         opt.apply_gradients(zip(grads, vars_))
@@ -321,14 +355,15 @@ for epoch in range(epochs):
         epoch_loss += loss.numpy()
         num_steps += 1
 
+        # Store gradient norms for each variable
+        for i, g in enumerate(grads):
+            if g is not None:
+                var_name = var_names[i]
+                if var_name not in epoch_grad_norms:
+                    epoch_grad_norms[var_name] = []
+                epoch_grad_norms[var_name].append(tf.norm(g).numpy())
+
         if cli_test:
-            # Store the norm of each gradient for each variable
-            for i, g in enumerate(grads):
-                if g is not None:
-                    var_name = var_names[i]
-                    if var_name not in epoch_grad_norms:
-                        epoch_grad_norms[var_name] = []
-                    epoch_grad_norms[var_name].append(tf.norm(g).numpy())
             train_iterator.set_postfix(loss=f"{loss.numpy():.4f}")
 
         if not cli_test and (step + 1) % 10 == 0:
@@ -336,6 +371,18 @@ for epoch in range(epochs):
 
     # -------- validation step at the end of each epoch ----------
     avg_train_loss = epoch_loss / num_steps
+    
+    # Save gradients for the epoch
+    if not cli_test:
+        gradients_path = os.path.join(save_dir, run_name, "gradients.txt")
+        with open(gradients_path, "a") as f:
+            f.write(f"--- Epoch {epoch+1} ---\n")
+            for name, norm_list in epoch_grad_norms.items():
+                if norm_list:
+                    avg_norm = np.mean(norm_list)
+                    f.write(f"{name}: {avg_norm}\n")
+            f.write("\n")
+
     val_probs_pass = []
     val_losses_pass = []
     
@@ -351,7 +398,11 @@ for epoch in range(epochs):
             eng.reset()
 
         state   = eng.run(prog, args=make_args(jet_batch_val)).state
-        photons = tf.stack([state.mean_photon(m)[0] for m in range(3)], axis=1)
+        photons_list = [state.mean_photon(m)[0] for m in range(photon_modes)]
+        if batch_size == 1:
+            photons = tf.expand_dims(tf.stack(photons_list, axis=0), axis=0)
+        else:
+            photons = tf.stack(photons_list, axis=1)
         val_loss_vector, val_prob = get_loss_fn(photons, label_batch_val, bias=tf_bias, tanh=tanh, loss_type=loss_fn)
         
         val_probs_pass.extend(val_prob.numpy())
@@ -388,7 +439,11 @@ def predict_prob(jets_tensor, labels):
         if eng.run_progs:
             eng.reset()
         state   = eng.run(prog, args=make_args(jet_batch)).state
-        photons = tf.stack([state.mean_photon(m)[0] for m in range(3)], axis=1)
+        photons_list = [state.mean_photon(m)[0] for m in range(photon_modes)]
+        if batch_size == 1:
+            photons = tf.expand_dims(tf.stack(photons_list, axis=0), axis=0)
+        else:
+            photons = tf.stack(photons_list, axis=1)
         loss, prob = get_loss_fn(photons, label_batch, bias=tf_bias, tanh=tanh, loss_type=loss_fn)
         
         probs.extend(prob.numpy())
