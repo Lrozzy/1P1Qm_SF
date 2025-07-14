@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # Use the high-priority development queue w/ #PBS -q devel #PBS -q devel (this doesn't work)
-#PBS -l select=1:ncpus=4:mem=64gb:ngpus=1
-#PBS -l walltime=8:00:00
-#PBS -N SF_job
+#PBS -l select=1:ncpus=4:mem=1000gb
+#PBS -l walltime=24:00:00
+#PBS -N SF_job_d10_w10
 
 # oe merges the job's standard output (`stdout`) and standard error (`stderr`)
 #PBS -j oe
 
 # output path
-#PBS -o /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/SF_job.batch_1
+#PBS -o /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/SF_job.dim_cutoff_10_wires_10
 
 cd $PBS_O_WORKDIR
 
@@ -42,13 +42,15 @@ echo "--------------------"
 # --- Run Your Python Script ---
 echo "Starting Python script..."
 python /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main.py \
-    -name "First_GPU_Test" \
-    --dim_cutoff 9 \
+    -name "dim10_wires10" \
+    --epochs 15 \
+    --dim_cutoff 10 \
+    --wires 10 \
+    --photon_modes 10 \
     --train_jets 1000 \
-    --val_jets 200 \
+    --val_jets 500 \
     --test_jets 1000 \
     --batch_size 16 \
-    --epochs 20 
 # --- End of Job ---
 echo "--------------------"
 echo "Job finished at $(date)"

@@ -27,10 +27,18 @@ layers          = 1 # not using right now, but can be used for circuit depth
 epochs          = 10
 learning_rate   = 0.005
 batch_size      = 8 # 
-train_jets      = 300 # /40000
-val_jets        = 200 # /10000
-test_jets       = 300 # /20000
+train_jets      = 100 # /40000
+val_jets        = 20 # /10000
+test_jets       = 120 # /20000
 photon_modes    = 4  # number of photon modes to use for extracting features
+
+# Early stopping and learning rate parameters
+patience        = 3     # Number of epochs to wait before stopping
+min_delta       = 0.003 # Minimum change to qualify as an improvement
+restore_best    = True  # Restore best weights when early stopping
+lr_patience     = 2     # Epochs to wait before reducing LR
+lr_factor       = 0.5   # Factor to reduce LR by
+min_lr          = 1e-5  # Minimum learning rate
 
 # Loss function and activation parameters
 loss_fn         = "bce" # loss function: "bce" or "mse"
@@ -63,6 +71,12 @@ parser.add_argument('--train_jets', type=int, default=train_jets, help='Number o
 parser.add_argument('--val_jets', type=int, default=val_jets, help='Number of validation jets')
 parser.add_argument('--test_jets', type=int, default=test_jets, help='Number of test jets')
 parser.add_argument('--photon_modes', type=int, default=photon_modes, help='Number of photon modes to use for extracting features')
+parser.add_argument('--patience', type=int, default=patience, help='Early stopping patience')
+parser.add_argument('--min_delta', type=float, default=min_delta, help='Minimum improvement for early stopping')
+parser.add_argument('--restore_best', action='store_true', help='Restore best weights on early stopping')
+parser.add_argument('--lr_patience', type=int, default=lr_patience, help='LR reduction patience')
+parser.add_argument('--lr_factor', type=float, default=lr_factor, help='LR reduction factor')
+parser.add_argument('--min_lr', type=float, default=min_lr, help='Minimum learning rate')
 parser.add_argument('--data_dir', type=str, default=data_dir, help='Training data file')
 parser.add_argument('--val_dir', type=str, default=val_dir, help='Validation data file')
 parser.add_argument('--test_dir', type=str, default=test_dir, help='Test data file')
@@ -85,6 +99,12 @@ val_jets      = args.val_jets if args.val_jets else val_jets
 test_jets     = args.test_jets if args.test_jets else test_jets
 photon_modes  = args.photon_modes if args.photon_modes else photon_modes
 photon_modes = min(photon_modes, wires) # Can't have higher photon mode than num wires
+patience      = args.patience if args.patience else patience
+min_delta     = args.min_delta if args.min_delta else min_delta
+restore_best  = args.restore_best if args.restore_best else restore_best
+lr_patience   = args.lr_patience if args.lr_patience else lr_patience
+lr_factor     = args.lr_factor if args.lr_factor else lr_factor
+min_lr        = args.min_lr if args.min_lr else min_lr
 data_dir      = args.data_dir if args.data_dir else data_dir
 val_dir       = args.val_dir if args.val_dir else val_dir
 test_dir      = args.test_dir if args.test_dir else test_dir
@@ -144,6 +164,12 @@ if cli_test == False:
         "val_jets": val_jets,
         "test_jets": test_jets,
         "photon_modes": photon_modes,
+        "patience": patience,
+        "min_delta": min_delta,
+        "restore_best": restore_best,
+        "lr_patience": lr_patience,
+        "lr_factor": lr_factor,
+        "min_lr": min_lr,
         "data_dir": data_dir,
         "val_dir": val_dir,
         "test_dir": test_dir,
@@ -304,6 +330,13 @@ eng = sf.Engine("tf", backend_options={"cutoff_dim": dim_cutoff, "batch_size": s
 # -------- training loop ----------
 print("Starting training...", flush=True)
 
+# Early stopping and learning rate variables
+best_val_auc = 0.0
+patience_counter = 0
+lr_patience_counter = 0
+best_weights = None
+current_lr = learning_rate
+
 # Create a tf.data.Dataset for efficient batching and shuffling
 train_dataset = tf.data.Dataset.from_tensor_slices((jets, labels))
 train_dataset = train_dataset.shuffle(buffer_size=train_jets).batch(batch_size, drop_remainder=True)
@@ -410,6 +443,56 @@ for epoch in range(epochs):
 
     avg_val_loss = np.mean(val_losses_pass)
     auc_val = roc_auc_score(labels_val.numpy(), np.asarray(val_probs_pass))
+    
+    # Early stopping and learning rate logic
+    if auc_val > best_val_auc + min_delta:
+        best_val_auc = auc_val
+        patience_counter = 0
+        lr_patience_counter = 0
+        
+        # Save best weights
+        if restore_best:
+            if which_circuit == "new":
+                best_weights = [tf_s_scale.numpy(), *[v.numpy() for v in tf_disp_mag], 
+                               *[v.numpy() for v in tf_disp_phase], *[v.numpy() for v in tf_squeeze_mag],
+                               *[v.numpy() for v in tf_squeeze_phase], *[v.numpy() for v in tf_cx_theta.values()], 
+                               tf_bias.numpy()]
+            else:
+                best_weights = [tf_s_scale.numpy(), *[v.numpy() for v in tf_disp_mag], 
+                               *[v.numpy() for v in tf_disp_phase], *[v.numpy() for v in tf_squeeze_mag],
+                               *[v.numpy() for v in tf_squeeze_phase], tf_bias.numpy()]
+        
+        # print(f"  New best validation AUC: {best_val_auc:.4f}", flush=True)
+    else:
+        patience_counter += 1
+        
+        # Learning rate reduction on plateau
+        lr_patience_counter += 1
+        if lr_patience_counter >= lr_patience and current_lr > min_lr:
+            old_lr = current_lr
+            current_lr = max(current_lr * lr_factor, min_lr)
+            opt.learning_rate.assign(current_lr)
+            lr_patience_counter = 0
+            print(f"Reduced learning rate from {old_lr} to {current_lr}", flush=True)
+        
+        # print(f"  No improvement. Patience: {patience_counter}/{patience}", flush=True)
+    
+    # Early stopping check
+    if patience_counter >= patience:
+        print(f"Early stopping triggered after {epoch+1} epochs", flush=True)
+        
+        # Restore best weights
+        if restore_best and best_weights is not None:
+            if which_circuit == "new":
+                vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, *tf_cx_theta.values(), tf_bias]
+            else:
+                vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, tf_bias]
+            
+            for var, weight in zip(vars_, best_weights):
+                var.assign(weight)
+            print(f"Restored best weights from epoch with AUC: {best_val_auc:.4f}", flush=True)
+        
+        break
     
     if cli_test:
         print(f"Epoch {epoch+1}/{epochs} - Training Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f} - Validation AUC: {auc_val:.4f}", flush=True)
