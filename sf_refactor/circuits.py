@@ -63,7 +63,7 @@ def new_circuit(prog, wires, weights):
     disp_phase    = [weights[f"disp_phase_{i}"]    for i in range(wires)]
 
     # CX coupling strengths─
-    cx_pairs = [(0,1),(0,2),(0,3),(1,2),(1,3),(2,3)]
+    cx_pairs = [(i, j) for i in range(wires) for j in range(i+1, wires)]
     cx_theta = {(a, b): weights[f"cx_theta_{a}_{b}"] for (a, b) in cx_pairs}
 
     with prog.context as q:
