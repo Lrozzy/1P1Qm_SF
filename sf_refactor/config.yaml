@@ -1,0 +1,42 @@
+defaults:
+  - _self_
+
+# Model parameters
+model:
+  dim_cutoff: 8
+  wires: 4
+  layers: 1
+  photon_modes: 4
+  which_circuit: "new"  # "default" or "new"
+
+# Training parameters
+training:
+  epochs: 10
+  learning_rate: 0.005
+  batch_size: 8
+  loss_fn: "bce"  # "bce" or "mse"
+  tanh: false
+
+# Data parameters
+data:
+  train_jets: 100
+  val_jets: 20
+  test_jets: 120
+  data_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/flat_train/TTBar+ZJets_flat.h5"
+  val_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/flat_val/TTBar+ZJets_flat.h5"
+  test_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/flat_test/TTBar+ZJets_flat.h5"
+  save_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/saved_models_sf"
+
+# Early stopping and learning rate parameters
+optimization:
+  patience: 3
+  min_delta: 0.003
+  restore_best: true
+  lr_patience: 2
+  lr_factor: 0.5
+  min_lr: 1e-5
+
+# Runtime parameters
+runtime:
+  cli_test: false
+  run_name: null  # Will be set via command line or auto-generated
