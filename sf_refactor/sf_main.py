@@ -9,6 +9,7 @@ from circuits import default_circuit, new_circuit
 from helpers.utils import load_data, get_loss_fn
 from helpers.config import validate_and_adjust_config, setup_run_name, save_config_to_file, print_config
 from helpers.memory_profiler import create_memory_profiler
+from helpers.model_utils import save_quantum_model
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
@@ -389,6 +390,30 @@ def main(cfg: DictConfig):
                     print(f"  Processed {min(end, total_jets)}/{total_jets} jets", flush=True)
 
         return np.asarray(probs)
+
+    # Save the best model (non-CLI test mode only)
+    if not cfg.runtime.cli_test:
+        print("Saving trained model...", flush=True)
+        
+        model_weights = {
+            "s_scale": tf_s_scale.numpy(),
+            "bias": tf_bias.numpy()
+        }
+        
+        # Add displacement parameters
+        for w in range(cfg.model.wires):
+            model_weights[f"disp_mag_{w}"] = tf_disp_mag[w].numpy()
+            model_weights[f"disp_phase_{w}"] = tf_disp_phase[w].numpy()
+            model_weights[f"squeeze_mag_{w}"] = tf_squeeze_mag[w].numpy()
+            model_weights[f"squeeze_phase_{w}"] = tf_squeeze_phase[w].numpy()
+        
+        # Add cx_theta parameters if using new circuit
+        if cfg.model.which_circuit == "new":
+            for (a, b) in cx_pairs:
+                model_weights[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)].numpy()
+        
+        # Save the model
+        model_dir = save_quantum_model(model_weights, cfg, run_name, cfg.data.save_dir)
 
     # test ----------------------------------------------------------------
     if profiler:
