@@ -8,6 +8,7 @@ from helpers.plotting import *
 from circuits import default_circuit, new_circuit
 from helpers.utils import load_data, get_loss_fn
 from helpers.config import validate_and_adjust_config, setup_run_name, save_config_to_file, print_config
+from helpers.memory_profiler import create_memory_profiler
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
@@ -35,10 +36,21 @@ def main(cfg: DictConfig):
     # Print configuration
     print_config(cfg, run_name, seed)
     
-    # ----------  load datasets ---------- 
-    jets, labels = load_data(cfg.data.data_dir, max_jets=cfg.data.train_jets, wires=cfg.model.wires)
-    jets_val, labels_val = load_data(cfg.data.val_dir, max_jets=cfg.data.val_jets, wires=cfg.model.wires)
-    jets_test, labels_test = load_data(cfg.data.test_dir, max_jets=cfg.data.test_jets, wires=cfg.model.wires)
+    # Initialize memory profiler
+    profiler = create_memory_profiler(cfg, run_name)
+    if profiler:
+        profiler.log_memory("Script start")
+    
+    # ----------  load datasets ----------
+    if profiler:
+        with profiler.profile_block("Data loading"):
+            jets, labels = load_data(cfg.data.data_dir, max_jets=cfg.data.train_jets, wires=cfg.model.wires)
+            jets_val, labels_val = load_data(cfg.data.val_dir, max_jets=cfg.data.val_jets, wires=cfg.model.wires)
+            jets_test, labels_test = load_data(cfg.data.test_dir, max_jets=cfg.data.test_jets, wires=cfg.model.wires)
+    else:
+        jets, labels = load_data(cfg.data.data_dir, max_jets=cfg.data.train_jets, wires=cfg.model.wires)
+        jets_val, labels_val = load_data(cfg.data.val_dir, max_jets=cfg.data.val_jets, wires=cfg.model.wires)
+        jets_test, labels_test = load_data(cfg.data.test_dir, max_jets=cfg.data.test_jets, wires=cfg.model.wires)
 
     # -------- symbolic circuit ----------
     # print("Starting symbolic circuit construction...", flush=True)
@@ -116,8 +128,6 @@ def main(cfg: DictConfig):
 
     # Create arguments for the SF program (map symbolic variables to tensors)
     def make_args(jet_batch):
-        # This function now accepts a batch of jets
-        
         # Squeeze the batch dimension if batch_size is 1
         squeeze = jet_batch.shape[0] == 1
 
@@ -153,7 +163,15 @@ def main(cfg: DictConfig):
     sf_batch_size = cfg.training.batch_size
     if cfg.training.batch_size == 1:
         sf_batch_size = None
-    eng = sf.Engine("tf", backend_options={"cutoff_dim": cfg.model.dim_cutoff, "batch_size": sf_batch_size})    # -------- training loop ----------
+    
+    # Initialize StrawberryFields engine
+    if profiler:
+        with profiler.profile_block("Engine initialization"):
+            eng = sf.Engine("tf", backend_options={"cutoff_dim": cfg.model.dim_cutoff, "batch_size": sf_batch_size})
+    else:
+        eng = sf.Engine("tf", backend_options={"cutoff_dim": cfg.model.dim_cutoff, "batch_size": sf_batch_size})
+    
+    # -------- training loop ----------
     print("Starting training...", flush=True)
 
     # Early stopping and learning rate variables
@@ -174,6 +192,10 @@ def main(cfg: DictConfig):
         var_names = ['s_scale'] + [f'disp_mag_{i}' for i in range(cfg.model.wires)] + [f'disp_phase_{i}' for i in range(cfg.model.wires)] + [f'squeeze_mag_{i}' for i in range(cfg.model.wires)] + [f'squeeze_phase_{i}' for i in range(cfg.model.wires)] + ['bias']
 
     for epoch in range(cfg.training.epochs):
+        # Log memory at start of epoch
+        if profiler:
+            profiler.log_memory(f"Epoch {epoch+1} start")
+        
         # Keep track of the loss for this epoch
         epoch_loss = 0.0
         num_steps = 0
@@ -225,6 +247,10 @@ def main(cfg: DictConfig):
             if cfg.runtime.cli_test:
                 train_iterator.set_postfix(loss=f"{loss.numpy():.4f}")
 
+            # Mid-epoch memory profiling
+            if profiler and cfg.profiling.memory_log_frequency > 0 and (step + 1) % cfg.profiling.memory_log_frequency == 0:
+                profiler.log_memory(f"Epoch {epoch+1}, batch {step+1}/{len(train_dataset)}")
+
             if not cfg.runtime.cli_test and (step + 1) % 10 == 0:
                 print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Batch Loss: {loss:.4f}", flush=True)        # -------- validation step at the end of each epoch ----------
         avg_train_loss = epoch_loss / num_steps
@@ -254,7 +280,7 @@ def main(cfg: DictConfig):
             if eng.run_progs:
                 eng.reset()
 
-            state   = eng.run(prog, args=make_args(jet_batch_val)).state
+            state = eng.run(prog, args=make_args(jet_batch_val)).state
             photons_list = [state.mean_photon(m)[0] for m in range(cfg.model.photon_modes)]
             if cfg.training.batch_size == 1:
                 photons = tf.expand_dims(tf.stack(photons_list, axis=0), axis=0)
@@ -328,7 +354,13 @@ def main(cfg: DictConfig):
                 avg_norm = np.mean(norms) if norms else 0.0
                 print(f"    {var_name}: {avg_norm:.6f}", flush=True)
         else:
-            print(f"Epoch {epoch+1}/{cfg.training.epochs} - Training Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f} - Validation AUC: {auc_val:.4f}", flush=True)    # --------- Evaluate and print AUC ---------
+            print(f"Epoch {epoch+1}/{cfg.training.epochs} - Training Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f} - Validation AUC: {auc_val:.4f}", flush=True)
+        
+        # Log memory at end of epoch
+        if profiler:
+            profiler.log_memory(f"Epoch {epoch+1} end")
+
+    # --------- Evaluate and print AUC ---------
     def predict_prob(jets_tensor, labels):
         """Return an array of P(signal) for each jet."""
         probs = []
@@ -359,9 +391,15 @@ def main(cfg: DictConfig):
         return np.asarray(probs)
 
     # test ----------------------------------------------------------------
-    print("Predicting on test set...", flush=True)
-    prob_test = predict_prob(jets_test, labels_test)
-    auc_test  = roc_auc_score(labels_test.numpy(), prob_test)
+    if profiler:
+        with profiler.profile_block("Test evaluation"):
+            print("Predicting on test set...", flush=True)
+            prob_test = predict_prob(jets_test, labels_test)
+            auc_test  = roc_auc_score(labels_test.numpy(), prob_test)
+    else:
+        print("Predicting on test set...", flush=True)
+        prob_test = predict_prob(jets_test, labels_test)
+        auc_test  = roc_auc_score(labels_test.numpy(), prob_test)
 
     # summary -------------------------------------------------
     print("Training completed.", flush=True)
@@ -376,6 +414,10 @@ def main(cfg: DictConfig):
         plot_roc_curve(labels_test.numpy(), prob_test, roc_plot_path)
         plot_score_histogram(labels_test.numpy(), prob_test, score_hist_path)
         print(f"Plots saved to {plots_dir}")
+    
+    # Final memory log
+    if profiler:
+        profiler.log_memory("Script end")
 
 if __name__ == "__main__":
     main()

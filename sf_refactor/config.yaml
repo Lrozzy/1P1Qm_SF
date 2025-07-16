@@ -48,3 +48,8 @@ optimization:
 runtime:
   cli_test: false
   run_name: null  # Will be set via command line or auto-generated
+
+# Memory profiling parameters
+profiling:
+  memory_enabled: true
+  memory_log_frequency: 5  # Log memory every N batches (0 = only epochs)
