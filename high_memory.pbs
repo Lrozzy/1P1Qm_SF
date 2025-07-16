@@ -42,15 +42,15 @@ echo "--------------------"
 # --- Run Your Python Script ---
 echo "Starting Python script..."
 python /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main.py \
-    -name "dim9_wires6" \
-    --epochs 20 \
-    --dim_cutoff 9 \
-    --wires 6 \
-    --photon_modes 6 \
-    --train_jets 1000 \
-    --val_jets 500 \
-    --test_jets 1000 \
-    --batch_size 1 \
+    model.dim_cutoff=9 \
+    model.wires=6 \
+    model.photon_modes=6 \
+    training.epochs=20 \
+    training.batch_size=1 \
+    data.train_jets=1000 \
+    data.val_jets=500 \
+    data.test_jets=1000 \
+    runtime.run_name="dim9_wires6"
 # --- End of Job ---
 echo "--------------------"
 echo "Job finished at $(date)"
