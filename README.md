@@ -76,3 +76,22 @@ Use Miniconda or your preferred variant.
 - Do not exceed `dim_cutoff=10` unless you have sufficient resources.
 - Use `wires=5` or fewer for most runs.
 
+## Running Inference
+
+After training a model, you can run inference using the `simple_inference.py` script:
+
+- **Basic inference (uses config test data settings):**
+
+  ```bash
+  cd sf_refactor
+  python simple_inference.py --model_dir saved_models_sf/<run_name>/model
+  ```
+
+**Inference Options:**
+
+- `--model_dir`: Path to saved model directory (required)
+- `--max_jets`: Number of jets to process (default: use config setting)
+- `--batch_size`: Batch size for inference (default: 32)
+- `--cli_test`: Show progress bar for interactive use
+- `--random_subset`: Randomly sample jets instead of using first N
+- `--seed`: Random seed for reproducible random sampling

@@ -37,10 +37,10 @@ data:
 
 # Early stopping and learning rate parameters
 optimization:
-  patience: 3  # Number of epochs to wait for improvement before early stopping
-  min_delta: 0.003  # Minimum change in validation AUC to qualify as improvement
+  patience: 4  # Number of epochs to wait for improvement before early stopping
+  min_delta: 0.001  # Minimum change in validation AUC to qualify as improvement
   restore_best: true  # Restore weights from best validation epoch when early stopping
-  lr_patience: 2  # Number of epochs to wait before reducing learning rate
+  lr_patience: 3  # Number of epochs to wait before reducing learning rate
   lr_factor: 0.5  # Factor to multiply learning rate by when reducing (new_lr = old_lr * factor)
   min_lr: 1e-5  # Minimum learning rate threshold (stops reducing below this)
   min_epochs: 5  # Minimum number of epochs to train before allowing early stopping

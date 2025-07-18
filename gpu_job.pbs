@@ -3,13 +3,13 @@
 # Use the high-priority development queue w/ #PBS -q devel #PBS -q devel (this doesn't work)
 #PBS -l select=1:ncpus=4:mem=64gb:ngpus=1
 #PBS -l walltime=8:00:00
-#PBS -N dim9_wires4
+#PBS -N dim9_wires4_take2
 
 # oe merges the job's standard output (`stdout`) and standard error (`stderr`)
 #PBS -j oe
 
 # output path
-#PBS -o /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/SF_job.dim9_wires4
+#PBS -o /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/SF_job.dim9_wires4_take2
 
 cd $PBS_O_WORKDIR
 
@@ -48,9 +48,9 @@ python /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main.py \
     training.epochs=20 \
     training.batch_size=1 \
     data.train_jets=1000 \
-    data.val_jets=200 \
+    data.val_jets=500 \
     data.test_jets=1000 \
-    runtime.run_name="dim9_wires4"
+    runtime.run_name="dim9_wires4_take2"
 # --- End of Job ---
 echo "--------------------"
 echo "Job finished at $(date)"
