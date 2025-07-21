@@ -14,9 +14,9 @@ from tqdm import tqdm
 
 from helpers.model_utils import load_quantum_model
 from helpers.utils import load_data, get_loss_fn
-from circuits import default_circuit, new_circuit
+from circuits import default_circuit, new_circuit, x8_circuit
 
-def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, random_subset=False, seed=None):
+def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, random_subset=False, seed=None, which_circuit=None):
     """
     Run inference using a saved quantum model.
     
@@ -27,6 +27,7 @@ def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, rando
         cli_mode: If True, use tqdm progress bar; if False, use simple print statements
         random_subset: If True, randomly sample from test data; if False, use first N jets
         seed: Random seed for reproducible random sampling (only used if random_subset=True)
+        which_circuit: Override circuit type (None = use saved model's circuit type)
     """
     
     # Load the saved model
@@ -34,9 +35,15 @@ def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, rando
     model_weights, config, metadata, feature_scaling, circuit_info = load_quantum_model(model_dir)
     print(f"Loaded model: {metadata['circuit_architecture']} circuit")
     
+    # Override circuit type if specified
+    if which_circuit is not None:
+        print(f"Overriding circuit type: {config.model.which_circuit} -> {which_circuit}")
+        config.model.which_circuit = which_circuit
+    
     # Format timestamp for display (convert 2025-07-17T22:40:34 to 2025-07-17 22:40:34)
     formatted_timestamp = metadata['save_timestamp'].replace('T', ' ')
     print(f"Model saved: {formatted_timestamp}")
+    print(f"Running inference with: {config.model.which_circuit} circuit")
     
     # Use config test data settings if max_jets not specified
     if max_jets is None:
@@ -70,6 +77,8 @@ def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, rando
     
     # Create symbolic circuit (same as training)
     print("Setting up quantum circuit...")
+    
+    # All circuits now use standard 4-mode structure for weight compatibility
     prog = sf.Program(config.model.wires)
     
     # Create symbolic parameters
@@ -82,12 +91,12 @@ def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, rando
     phi = [prog.params(f"phi{w}") for w in range(config.model.wires)]
     pt = [prog.params(f"pt{w}") for w in range(config.model.wires)]
     
-    # Extra parameters for new circuit
+    # Extra parameters for new circuit and x8 circuit
     cx_pairs = [(i, j) for i in range(config.model.wires) for j in range(i+1, config.model.wires)]
     cx_theta = {(a,b): prog.params(f"cx_theta_{a}_{b}") for (a,b) in cx_pairs}
     
     # Build circuit
-    if config.model.which_circuit == "new":
+    if config.model.which_circuit == "new" or config.model.which_circuit == "x8":
         weights = {
             's_scale': s_scale,
             **{f'disp_mag_{w}': disp_mag[w] for w in range(config.model.wires)},
@@ -99,7 +108,11 @@ def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, rando
             **{f'pt_{w}': pt[w] for w in range(config.model.wires)},
             **{f"cx_theta_{a}_{b}": cx_theta[(a,b)] for (a,b) in cx_pairs},
         }
-        prog = new_circuit(prog, config.model.wires, weights)
+        
+        if config.model.which_circuit == "x8":
+            prog = x8_circuit(prog, config.model.wires, weights)
+        else:  # new circuit
+            prog = new_circuit(prog, config.model.wires, weights)
     else:
         weights = {
             's_scale': s_scale,
@@ -145,8 +158,8 @@ def run_inference(model_dir, max_jets=None, batch_size=32, cli_mode=False, rando
                 d[f"phi{w}"] = phi_val
                 d[f"pt{w}"] = pt_val
         
-        # Add cx parameters if new circuit
-        if config.model.which_circuit == "new":
+        # Add cx parameters if new circuit or x8 circuit
+        if config.model.which_circuit == "new" or config.model.which_circuit == "x8":
             for (a, b) in cx_pairs:
                 d[f"cx_theta_{a}_{b}"] = model_weights[f"cx_theta_{a}_{b}"]
         
@@ -221,6 +234,9 @@ def main():
                         help='Randomly sample jets from test data instead of using first N jets')
     parser.add_argument('--seed', type=int, default=None,
                         help='Random seed for reproducible random sampling (only used with --random_subset)')
+    parser.add_argument('--which_circuit', type=str, default=None, 
+                        choices=['default', 'new', 'x8'],
+                        help='Override circuit type for inference (default: use saved model circuit)')
     
     args = parser.parse_args()
     
@@ -234,7 +250,7 @@ def main():
     
     try:
         probs, labels, auc = run_inference(args.model_dir, args.max_jets, args.batch_size, 
-                                         args.cli_test, args.random_subset, args.seed)
+                                         args.cli_test, args.random_subset, args.seed, args.which_circuit)
         
     except Exception as e:
         print(f"Error during inference: {e}")
