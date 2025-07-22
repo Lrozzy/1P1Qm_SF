@@ -335,8 +335,8 @@ def main():
                         help='Batch size for inference (default: 1)')
     parser.add_argument('--shots', type=int, default=10000,
                         help='Number of measurement shots per execution (default: 10000)')
-    parser.add_argument('--wait', action='store_true',
-                        help='Wait for X8 devices to come online if none are currently available')
+    parser.add_argument('--no-wait', action='store_true',
+                        help='Do not wait for X8 devices if none are currently available (exit immediately)')
     
     args = parser.parse_args()
     
@@ -358,7 +358,7 @@ def main():
             max_jets=args.max_jets,
             batch_size=args.batch_size,
             shots=args.shots,
-            wait_for_device=args.wait
+            wait_for_device=not args.no_wait
         )
         
         if auc is not None:
