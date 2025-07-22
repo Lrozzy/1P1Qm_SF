@@ -328,6 +328,18 @@ def main(cfg: DictConfig):
             
             # print(f"  No improvement. Patience: {patience_counter}/{patience}", flush=True)
         
+        if cfg.runtime.cli_test:
+            print(f"Epoch {epoch+1}/{cfg.training.epochs} - Training Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f} - Validation AUC: {auc_val:.4f}", flush=True)
+            # Diagnostic: Print the first 5 validation probabilities to check if they are changing
+            val_probs_preview = ", ".join([f"{p:.4f}" for p in val_probs_pass[:5]])
+            print(f"  Validation Probs Preview: [{val_probs_preview}]", flush=True)
+            print("  Average Gradient Norms per variable for this epoch:", flush=True)
+            for var_name, norms in sorted(epoch_grad_norms.items()):
+                avg_norm = np.mean(norms) if norms else 0.0
+                print(f"    {var_name}: {avg_norm:.6f}", flush=True)
+        else:
+            print(f"Epoch {epoch+1}/{cfg.training.epochs} - Training Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f} - Validation AUC: {auc_val:.4f}", flush=True)
+        
         # Early stopping check (only after minimum epochs)
         min_epochs = getattr(cfg.optimization, 'min_epochs', 0)  # Default to 0 for backward compatibility
         if patience_counter >= cfg.optimization.patience and epoch + 1 >= min_epochs:
@@ -347,18 +359,6 @@ def main(cfg: DictConfig):
             break
         elif patience_counter >= cfg.optimization.patience:
             print(f"Early stopping criteria met but continuing training (epoch {epoch+1} < minimum {min_epochs})", flush=True)
-        
-        if cfg.runtime.cli_test:
-            print(f"Epoch {epoch+1}/{cfg.training.epochs} - Training Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f} - Validation AUC: {auc_val:.4f}", flush=True)
-            # Diagnostic: Print the first 5 validation probabilities to check if they are changing
-            val_probs_preview = ", ".join([f"{p:.4f}" for p in val_probs_pass[:5]])
-            print(f"  Validation Probs Preview: [{val_probs_preview}]", flush=True)
-            print("  Average Gradient Norms per variable for this epoch:", flush=True)
-            for var_name, norms in sorted(epoch_grad_norms.items()):
-                avg_norm = np.mean(norms) if norms else 0.0
-                print(f"    {var_name}: {avg_norm:.6f}", flush=True)
-        else:
-            print(f"Epoch {epoch+1}/{cfg.training.epochs} - Training Loss: {avg_train_loss:.4f} - Validation Loss: {avg_val_loss:.4f} - Validation AUC: {auc_val:.4f}", flush=True)
         
         # Log memory at end of epoch
         if profiler:
