@@ -98,12 +98,12 @@ def check_x8_device_availability():
         print(f"Unexpected error checking device availability: {e}", flush=True)
         return False, None
 
-def wait_for_x8_availability(max_wait_time=3600*12, check_interval=300):
+def wait_for_x8_availability(max_wait_time=3600*24, check_interval=300):
     """
     Wait for X8 devices to become available.
     
     Args:
-        max_wait_time: Maximum time to wait in seconds (default: 12 hours)
+        max_wait_time: Maximum time to wait in seconds (default: 24 hours)
         check_interval: Time between checks in seconds (default: 5 minutes)
 
     Returns:

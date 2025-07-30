@@ -15,7 +15,9 @@ model:
   wires: 3
   # layers: 1 # not implemented yet
   photon_modes: 3
-  which_circuit: "new"  # "default" or "new"
+  which_circuit: "new"  # "default", "new", or "sequential"
+  particles_per_wire: 3  # Only used with "sequential" circuit - number of particles to encode per wire
+                         # Note: wires × particles_per_wire must not exceed available particles in data
 
 # Training parameters
 training:

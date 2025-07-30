@@ -3,10 +3,30 @@ import numpy as np
 import tensorflow as tf
 
 # DATA IS ALREADY SORTED BY PT (highest to lowest)
-def load_data(path, max_jets, wires):
+def load_data(path, max_jets, num_particles):
+    """
+    Load jet data from HDF5 file.
+    
+    Args:
+        path: Path to HDF5 file
+        max_jets: Maximum number of jets to load
+        num_particles: Number of particles to load per jet
+    
+    Returns:
+        Tuple of (jet_constituents, truth_labels) as TensorFlow tensors
+    """
     with h5py.File(path, "r") as f:
-        jet_constituents = f["jetConstituentsList"][:max_jets, :wires, :]     # (N,4,3)
-        truth_labels = f["truth_labels"][:max_jets].astype(np.float32)     # (N,)
+        available_particles = f["jetConstituentsList"].shape[1]
+        
+        if num_particles > available_particles:
+            raise ValueError(
+                f"Requested {num_particles} particles per jet "
+                f"but data only has {available_particles} particles per jet"
+            )
+        
+        jet_constituents = f["jetConstituentsList"][:max_jets, :num_particles, :]
+        truth_labels = f["truth_labels"][:max_jets].astype(np.float32)
+    
     return tf.convert_to_tensor(jet_constituents, tf.float32), tf.convert_to_tensor(truth_labels, tf.float32)
 
 def get_loss_fn(photons, label, bias=0.0, tanh = False, loss_type="bce", dim_cutoff=None):
