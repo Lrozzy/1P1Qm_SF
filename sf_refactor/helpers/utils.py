@@ -13,7 +13,7 @@ def load_data(path, max_jets, num_particles):
         num_particles: Number of particles to load per jet
     
     Returns:
-        Tuple of (jet_constituents, truth_labels) as TensorFlow tensors
+        Tuple of (jet_constituents, truth_labels, jet_pt) as TensorFlow tensors
     """
     with h5py.File(path, "r") as f:
         available_particles = f["jetConstituentsList"].shape[1]
@@ -26,8 +26,14 @@ def load_data(path, max_jets, num_particles):
         
         jet_constituents = f["jetConstituentsList"][:max_jets, :num_particles, :]
         truth_labels = f["truth_labels"][:max_jets].astype(np.float32)
+        
+        # Load jet pT (first column of jetFeatures)
+        jet_features = f["jetFeatures"][:max_jets, :]
+        jet_pt = jet_features[:, 0].astype(np.float32)
     
-    return tf.convert_to_tensor(jet_constituents, tf.float32), tf.convert_to_tensor(truth_labels, tf.float32)
+    return (tf.convert_to_tensor(jet_constituents, tf.float32), 
+            tf.convert_to_tensor(truth_labels, tf.float32),
+            tf.convert_to_tensor(jet_pt, tf.float32))
 
 def get_loss_fn(photons, label, bias=0.0, tanh = False, loss_type="bce", dim_cutoff=None):
     """

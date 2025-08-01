@@ -45,13 +45,13 @@ def main(cfg: DictConfig):
     # ----------  load datasets ----------
     if profiler:
         with profiler.profile_block("Data loading"):
-            jets, labels = load_data(cfg.data.data_dir, max_jets=cfg.data.train_jets, num_particles=cfg.model.num_particles_needed)
-            jets_val, labels_val = load_data(cfg.data.val_dir, max_jets=cfg.data.val_jets, num_particles=cfg.model.num_particles_needed)
-            jets_test, labels_test = load_data(cfg.data.test_dir, max_jets=cfg.data.test_jets, num_particles=cfg.model.num_particles_needed)
+            jets, labels, jet_pt = load_data(cfg.data.data_dir, max_jets=cfg.data.train_jets, num_particles=cfg.model.num_particles_needed)
+            jets_val, labels_val, jet_pt_val = load_data(cfg.data.val_dir, max_jets=cfg.data.val_jets, num_particles=cfg.model.num_particles_needed)
+            jets_test, labels_test, jet_pt_test = load_data(cfg.data.test_dir, max_jets=cfg.data.test_jets, num_particles=cfg.model.num_particles_needed)
     else:
-        jets, labels = load_data(cfg.data.data_dir, max_jets=cfg.data.train_jets, num_particles=cfg.model.num_particles_needed)
-        jets_val, labels_val = load_data(cfg.data.val_dir, max_jets=cfg.data.val_jets, num_particles=cfg.model.num_particles_needed)
-        jets_test, labels_test = load_data(cfg.data.test_dir, max_jets=cfg.data.test_jets, num_particles=cfg.model.num_particles_needed)
+        jets, labels, jet_pt = load_data(cfg.data.data_dir, max_jets=cfg.data.train_jets, num_particles=cfg.model.num_particles_needed)
+        jets_val, labels_val, jet_pt_val = load_data(cfg.data.val_dir, max_jets=cfg.data.val_jets, num_particles=cfg.model.num_particles_needed)
+        jets_test, labels_test, jet_pt_test = load_data(cfg.data.test_dir, max_jets=cfg.data.test_jets, num_particles=cfg.model.num_particles_needed)
 
     # -------- symbolic circuit ----------
     # print("Starting symbolic circuit construction...", flush=True)
@@ -148,9 +148,12 @@ def main(cfg: DictConfig):
         a_min, a_max = assumed_limits[name]
         f_min, f_max = feature_limits[name]
         return (value - a_min) / (a_max - a_min) * (f_max - f_min) + f_min
+    
+    def scale_pt_by_jet(particle_pts, jet_pt):
+        return particle_pts / jet_pt[:, np.newaxis]
 
     # Create arguments for the SF program (map symbolic variables to tensors)
-    def make_args(jet_batch):
+    def make_args(jet_batch, jet_pt_batch):
         # Squeeze the batch dimension if batch_size is 1
         squeeze = jet_batch.shape[0] == 1
 
@@ -183,7 +186,7 @@ def main(cfg: DictConfig):
             for p in range(total_particles):
                 eta_val = scale_feature(jet_batch[:, p, 0], "eta")
                 phi_val = scale_feature(jet_batch[:, p, 1], "phi")
-                pt_val  = scale_feature(jet_batch[:, p, 2], "pt")
+                pt_val  = scale_pt_by_jet(jet_batch[:, p, 2], jet_pt_batch)
                     
                 if squeeze:
                     d[f"eta_{p}"] = tf.squeeze(eta_val)
@@ -199,7 +202,7 @@ def main(cfg: DictConfig):
                 # Slicing the batch to get all values for a specific feature across the batch
                 eta_val = scale_feature(jet_batch[:, w, 0], "eta")
                 phi_val = scale_feature(jet_batch[:, w, 1], "phi")
-                pt_val  = scale_feature(jet_batch[:, w, 2], "pt")
+                pt_val  = scale_pt_by_jet(jet_batch[:, w, 2], jet_pt_batch)
 
                 if squeeze:
                     d[f"eta{w}"] = tf.squeeze(eta_val)
@@ -240,7 +243,7 @@ def main(cfg: DictConfig):
     current_lr = cfg.training.learning_rate
 
     # Create a tf.data.Dataset for efficient batching and shuffling
-    train_dataset = tf.data.Dataset.from_tensor_slices((jets, labels))
+    train_dataset = tf.data.Dataset.from_tensor_slices((jets, labels, jet_pt))
     train_dataset = train_dataset.shuffle(buffer_size=cfg.data.train_jets).batch(cfg.training.batch_size, drop_remainder=True)
 
     # Define var_names outside the loop
@@ -266,13 +269,13 @@ def main(cfg: DictConfig):
         else:
             train_iterator = enumerate(train_dataset)
 
-        for step, (jet_batch, label_batch) in train_iterator:
+        for step, (jet_batch, label_batch, jet_pt_batch) in train_iterator:
             if eng.run_progs:
                 eng.reset()
 
             with tf.GradientTape() as tape:
                 # Run the circuit for the entire batch
-                state   = eng.run(prog, args=make_args(jet_batch)).state
+                state   = eng.run(prog, args=make_args(jet_batch, jet_pt_batch)).state
                 # state.mean_photon(m) returns a tuple (mean, variance), we only want the mean
                 photons_list = [state.mean_photon(m)[0] for m in range(cfg.model.photon_modes)]
                 if cfg.training.batch_size == 1:
@@ -334,11 +337,12 @@ def main(cfg: DictConfig):
             end = start + cfg.training.batch_size
             jet_batch_val = jets_val[start:end]
             label_batch_val = labels_val[start:end]
+            jet_pt_batch_val = jet_pt_val[start:end]
 
             if eng.run_progs:
                 eng.reset()
 
-            state = eng.run(prog, args=make_args(jet_batch_val)).state
+            state = eng.run(prog, args=make_args(jet_batch_val, jet_pt_batch_val)).state
             photons_list = [state.mean_photon(m)[0] for m in range(cfg.model.photon_modes)]
             if cfg.training.batch_size == 1:
                 photons = tf.expand_dims(tf.stack(photons_list, axis=0), axis=0)
@@ -422,7 +426,7 @@ def main(cfg: DictConfig):
             profiler.log_memory(f"Epoch {epoch+1} end")
 
     # --------- Evaluate and print AUC ---------
-    def predict_prob(jets_tensor, labels):
+    def predict_prob(jets_tensor, labels, jet_pt_tensor):
         """Return an array of P(signal) for each jet."""
         probs = []
         total_jets = jets_tensor.shape[0]
@@ -433,10 +437,11 @@ def main(cfg: DictConfig):
             end = start + cfg.training.batch_size
             jet_batch = jets_tensor[start:end]
             label_batch = labels[start:end]
+            jet_pt_batch = jet_pt_tensor[start:end]
 
             if eng.run_progs:
                 eng.reset()
-            state   = eng.run(prog, args=make_args(jet_batch)).state
+            state   = eng.run(prog, args=make_args(jet_batch, jet_pt_batch)).state
             photons_list = [state.mean_photon(m)[0] for m in range(cfg.model.photon_modes)]
             if cfg.training.batch_size == 1:
                 photons = tf.expand_dims(tf.stack(photons_list, axis=0), axis=0)
@@ -479,11 +484,11 @@ def main(cfg: DictConfig):
     if profiler:
         with profiler.profile_block("Test evaluation"):
             print("Predicting on test set...", flush=True)
-            prob_test = predict_prob(jets_test, labels_test)
+            prob_test = predict_prob(jets_test, labels_test, jet_pt_test)
             auc_test  = roc_auc_score(labels_test.numpy(), prob_test)
     else:
         print("Predicting on test set...", flush=True)
-        prob_test = predict_prob(jets_test, labels_test)
+        prob_test = predict_prob(jets_test, labels_test, jet_pt_test)
         auc_test  = roc_auc_score(labels_test.numpy(), prob_test)
 
     # summary -------------------------------------------------
