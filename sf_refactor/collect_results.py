@@ -40,7 +40,7 @@ def collect_results():
     # Create results matrix
     results = pd.DataFrame(index=dim_cutoffs, columns=wires_range, dtype=object)
     
-    base_log_dir = "/rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs"
+    base_log_dir = "/rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/dim_vs_wire_table"
     
     total_expected = 0
     found_results = 0
