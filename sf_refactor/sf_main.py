@@ -491,9 +491,14 @@ def main(cfg: DictConfig):
         prob_test = predict_prob(jets_test, labels_test, jet_pt_test)
         auc_test  = roc_auc_score(labels_test.numpy(), prob_test)
 
+    # Calculate accuracy using 0.5 threshold
+    pred_test = (prob_test >= 0.5).astype(int)
+    accuracy_test = np.mean(pred_test == labels_test.numpy())
+
     # summary -------------------------------------------------
     print("Training completed.", flush=True)
     print(f"Final test AUC: {auc_test:.4f}", flush=True)
+    print(f"Final test Accuracy: {accuracy_test:.4f}", flush=True)
 
     # Generate and save plots
     if not cfg.runtime.cli_test:
