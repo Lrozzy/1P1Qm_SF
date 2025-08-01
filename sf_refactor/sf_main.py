@@ -10,6 +10,7 @@ from helpers.utils import load_data, get_loss_fn
 from helpers.config import validate_and_adjust_config, setup_run_name, save_config_to_file, print_config
 from helpers.memory_profiler import create_memory_profiler
 from helpers.model_utils import save_quantum_model
+from helpers.predictions import save_test_predictions
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
@@ -500,8 +501,10 @@ def main(cfg: DictConfig):
     print(f"Final test AUC: {auc_test:.4f}", flush=True)
     print(f"Final test Accuracy: {accuracy_test:.4f}", flush=True)
 
-    # Generate and save plots
     if not cfg.runtime.cli_test:
+    # Save predictions and inputs to file
+        save_test_predictions(cfg, run_name, prob_test, pred_test, labels_test, jet_pt_test, jets_test)
+    # Generate and save plots
         plots_dir = os.path.join(cfg.data.save_dir, run_name, 'plots')
         os.makedirs(plots_dir, exist_ok=True)
         roc_plot_path = os.path.join(plots_dir, 'roc_curve.png')
