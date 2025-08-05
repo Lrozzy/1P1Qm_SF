@@ -26,6 +26,17 @@ def extract_auc_from_log(log_file):
         print(f"Error reading {log_file}: {e}")
     return None
 
+def is_high_memory_job(dim, wire):
+    """Determine if a job configuration uses high memory (CPU) instead of GPU"""
+    # High memory needed for: dim>=9 and wires>=5, or dim>=8 and wires>=7, etc.
+    # This matches the logic from generate_experiment_jobs.sh
+    if ((dim >= 9 and wire >= 5) or 
+        (dim >= 8 and wire >= 7) or 
+        (dim >= 7 and wire >= 8) or 
+        (dim >= 6 and wire >= 9)):
+        return True
+    return False
+
 
 
 def collect_results():
@@ -97,6 +108,11 @@ def print_table(results):
     print("Rows: Dimension Cutoff")
     print("Columns: Number of Wires") 
     print("Values: Test AUC (4 decimal places)")
+    print("\nHardware Configuration:")
+    print("  HIGH-MEMORY CPU jobs (4TB RAM, 8 cores, no GPU, 48h walltime):")
+    print("    - dim10_wires5, dim9_wires[5-6], dim8_wires[7], dim7_wires[8], dim6_wires[9]")
+    print("  GPU jobs (64GB RAM, 4 cores, 1 GPU, 8h walltime):")
+    print("    - All other combinations")
     print("\nLegend:")
     print("  NF      = Not Feasible (exceeds memory limits or crashed due to memory)")
     print("  TO      = Timed Out (exceeded walltime limit)")
@@ -121,10 +137,20 @@ def print_table(results):
             value = results.loc[dim, wire]
             if pd.isna(value):
                 value = "---"
+            
+            # Add marker for high-memory jobs that actually ran (have log files)
+            if is_high_memory_job(dim, wire):
+                base_log_dir = "/rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_main_logs/dim_vs_wire_table"
+                job_name = f"dim{dim}_wires{wire}"
+                log_file = f"{base_log_dir}/{job_name}"
+                if os.path.exists(log_file) and value not in ["---"]:
+                    value = f"{value}*"  # Add asterisk for high-memory jobs that ran
+            
             print(f"{value:>9}", end="")
         print()
     
     print("-"*80)
+    print("* = High-memory CPU job that ran (4TB RAM, no GPU)")
     
     # Print summary statistics
     numeric_results = []
