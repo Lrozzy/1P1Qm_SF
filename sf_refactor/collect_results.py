@@ -119,20 +119,24 @@ def print_table(results):
     print("  RUNNING = Job currently running")
     print("  NOT_RUN = Job not submitted yet")
     print("  ERROR   = Error reading log file")
-    print("-"*80)
+    print("-"*87)
     
-    # Print header
-    print(f"{'Dim':<4}", end="")
+    # Print header with clearer axis labels
+    print(f"{'':>4}{'Wires':>9}", end="")
     for wire in results.columns:
         print(f"{wire:>9}", end="")
     print()
+    print(f"{'Dim':<4}{'':>9}", end="")
+    for _ in results.columns:
+        print(f"{'':>9}", end="")
+    print()
     
     # Print separator
-    print("-"*80)
+    print("-"*87)
     
     # Print data rows
     for dim in results.index:
-        print(f"{dim:<4}", end="")
+        print(f"{dim:<4}{'':>9}", end="")  # Add empty column after dim
         for wire in results.columns:
             value = results.loc[dim, wire]
             if pd.isna(value):
@@ -149,7 +153,7 @@ def print_table(results):
             print(f"{value:>9}", end="")
         print()
     
-    print("-"*80)
+    print("-"*87)
     print("* = High-memory CPU job that ran (4TB RAM, no GPU)")
     
     # Print summary statistics
