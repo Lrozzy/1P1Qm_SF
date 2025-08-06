@@ -22,11 +22,23 @@ def save_test_predictions(cfg, run_name, prob_test, pred_test, labels_test, jet_
     
     with open(predictions_path, "w") as f:
         f.write("# Test set predictions and inputs\n")
-        f.write("# Format: jet_index, true_label, predicted_prob, predicted_class, jet_pt, [particle features...]\n")
-        f.write("# Particle features: eta, phi, pt (for each particle used in the model)\n")
-        f.write(f"# Model used {cfg.model.num_particles_needed} particles per jet\n")
-        f.write(f"# Circuit type: {cfg.model.which_circuit}\n")
-        f.write("\n")
+        f.write("# Format: CSV-like with named columns for easy parsing\n")
+        f.write(f"# Model: {cfg.model.which_circuit} circuit with {cfg.model.num_particles_needed} particles per jet\n")
+        f.write("#\n")
+        f.write("# Column descriptions:\n")
+        f.write("#   jet_idx: Index of jet in test set\n")
+        f.write("#   true_label: Ground truth label (0 or 1)\n")
+        f.write("#   pred_class: Predicted class (0 or 1)\n")
+        f.write("#   pred_prob: Predicted probability\n")
+        f.write("#   jet_pt: Jet transverse momentum\n")
+        f.write("#   particle_N_eta/phi/pt: Features for particle N (eta, phi, pt)\n")
+        f.write("#\n")
+        
+        # Write header
+        header = "jet_idx,true_label,pred_class,pred_prob,jet_pt"
+        for p in range(cfg.model.num_particles_needed):
+            header += f",particle_{p+1}_eta,particle_{p+1}_phi,particle_{p+1}_pt"
+        f.write(header + "\n")
         
         # Get the number of jets that were actually processed (may be less due to batching)
         num_processed_jets = len(prob_test)
@@ -41,10 +53,10 @@ def save_test_predictions(cfg, run_name, prob_test, pred_test, labels_test, jet_
             # Get particle features for this jet (limited to num_particles_needed)
             jet_features = jets_test.numpy()[i, :cfg.model.num_particles_needed, :]  # [particles, features]
             
-            # Flatten particle features for output
-            particle_features_str = ""
+            # Build CSV row
+            row = f"{jet_idx},{true_label:.0f},{pred_class},{pred_prob:.6f},{jet_pt_val:.6f}"
             for p in range(cfg.model.num_particles_needed):
                 eta, phi, pt = jet_features[p, :]
-                particle_features_str += f" {eta:.6f} {phi:.6f} {pt:.6f}"
+                row += f",{eta:.6f},{phi:.6f},{pt:.6f}"
             
-            f.write(f"{jet_idx} {true_label:.0f} {pred_prob:.6f} {pred_class} {jet_pt_val:.6f}{particle_features_str}\n")
+            f.write(row + "\n")
