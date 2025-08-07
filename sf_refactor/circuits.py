@@ -91,15 +91,19 @@ def new_circuit(prog, wires, weights):
     return prog
 
 
-def sequential_encoding_circuit(prog, wires, weights, particles_per_wire=2):
+def multiuploading_circuit(prog, wires, weights, particles_per_wire=2, particle_mapping="interleaved"):
     """
-    Circuit with sequential encoding - multiple particles encoded sequentially on each qumode.
+    Circuit with multiuploading encoding - multiple particles encoded sequentially on each qumode.
+    Multiuploading!
     
     Args:
         prog: The Strawberry Fields program object.
         wires: Number of wires in the circuit.
         weights: A dictionary containing circuit parameters for all particles.
         particles_per_wire: Number of particles to encode on each wire.
+        particle_mapping: "sequential" or "interleaved" - how to map particles to wires
+                         sequential: wire0:[0,1], wire1:[2,3], wire2:[4,5] etc.
+                         interleaved: wire0:[0,wires], wire1:[1,wires+1], wire2:[2,wires+2] etc.
     """
     
     # Extract trainable parameters (same as new_circuit)
@@ -120,7 +124,13 @@ def sequential_encoding_circuit(prog, wires, weights, particles_per_wire=2):
         for w in range(wires):
             # Loop through particles assigned to this wire
             for p in range(particles_per_wire):
-                particle_idx = w * particles_per_wire + p
+                # Calculate particle index based on mapping pattern
+                if particle_mapping == "sequential":
+                    particle_idx = w * particles_per_wire + p
+                elif particle_mapping == "interleaved":
+                    particle_idx = p * wires + w
+                else:
+                    raise ValueError(f"Unknown particle_mapping: {particle_mapping}. Must be 'sequential' or 'interleaved'")
                 
                 # Extract features for the specific particle
                 eta_p = weights[f"eta_{particle_idx}"]

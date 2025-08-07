@@ -5,7 +5,7 @@ import os, random
 import hydra
 from omegaconf import DictConfig
 from helpers.plotting import * 
-from circuits import default_circuit, new_circuit, sequential_encoding_circuit
+from circuits import default_circuit, new_circuit, multiuploading_circuit
 from helpers.utils import load_data, get_loss_fn
 from helpers.config import validate_and_adjust_config, setup_run_name, save_config_to_file, print_config
 from helpers.memory_profiler import create_memory_profiler
@@ -85,9 +85,10 @@ def main(cfg: DictConfig):
             **{f"cx_theta_{a}_{b}": cx_theta[(a,b)] for (a,b) in cx_pairs},
         }
         prog = new_circuit(prog, cfg.model.wires, weights)
-    elif cfg.model.which_circuit == "sequential":
-        # For sequential encoding, we need parameters for all particles, not just one per wire
+    elif cfg.model.which_circuit == "multiuploading":
+        # For multiuploading encoding, we need parameters for all particles, not just one per wire
         particles_per_wire = getattr(cfg.model, 'particles_per_wire', 2)
+        particle_mapping = getattr(cfg.model, 'particle_mapping', 'interleaved')
         total_particles = cfg.model.wires * particles_per_wire
         
         # Create symbolic variables for all particles
@@ -106,7 +107,7 @@ def main(cfg: DictConfig):
             **{f'pt_{p}': pt_all[p] for p in range(total_particles)},
             **{f"cx_theta_{a}_{b}": cx_theta[(a,b)] for (a,b) in cx_pairs},
         }
-        prog = sequential_encoding_circuit(prog, cfg.model.wires, weights, particles_per_wire)
+        prog = multiuploading_circuit(prog, cfg.model.wires, weights, particles_per_wire, particle_mapping)
     else:
         weights = {
             's_scale': s_scale,
@@ -165,8 +166,8 @@ def main(cfg: DictConfig):
             d[f"squeeze_mag{w}"] = tf_squeeze_mag[w]
             d[f"squeeze_phase{w}"] = tf_squeeze_phase[w]
         
-        if cfg.model.which_circuit == "sequential":
-            # For sequential encoding, we need to provide parameters for all particles
+        if cfg.model.which_circuit == "multiuploading":
+            # For multiuploading encoding, we need to provide parameters for all particles
             particles_per_wire = getattr(cfg.model, 'particles_per_wire', 2)
             total_particles = cfg.model.wires * particles_per_wire
             available_particles = jet_batch.shape[1]
@@ -174,7 +175,7 @@ def main(cfg: DictConfig):
             # Validate that we have enough particles in the data
             if total_particles > available_particles:
                 raise ValueError(
-                    f"Sequential encoding requires {total_particles} particles "
+                    f"Multiuploading encoding requires {total_particles} particles "
                     f"({cfg.model.wires} wires × {particles_per_wire} particles_per_wire), "
                     f"but only {available_particles} particles are available in the data.\n"
                     f"Please either:\n"
@@ -214,7 +215,7 @@ def main(cfg: DictConfig):
                     d[f"phi{w}"] = phi_val
                     d[f"pt{w}"]  = pt_val
 
-        if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "sequential":
+        if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "multiuploading":
             for (a, b) in cx_pairs:
                 d[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)]
         return d
@@ -248,7 +249,7 @@ def main(cfg: DictConfig):
     train_dataset = train_dataset.shuffle(buffer_size=cfg.data.train_jets).batch(cfg.training.batch_size, drop_remainder=True)
 
     # Define var_names outside the loop
-    if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "sequential":
+    if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "multiuploading":
         var_names = ['s_scale'] + [f'disp_mag_{i}' for i in range(cfg.model.wires)] + [f'disp_phase_{i}' for i in range(cfg.model.wires)] + [f'squeeze_mag_{i}' for i in range(cfg.model.wires)] + [f'squeeze_phase_{i}' for i in range(cfg.model.wires)] + [f'cx_theta_{a}_{b}' for a,b in cx_pairs] + ['bias']
     else:
         var_names = ['s_scale'] + [f'disp_mag_{i}' for i in range(cfg.model.wires)] + [f'disp_phase_{i}' for i in range(cfg.model.wires)] + [f'squeeze_mag_{i}' for i in range(cfg.model.wires)] + [f'squeeze_phase_{i}' for i in range(cfg.model.wires)] + ['bias']
@@ -288,7 +289,7 @@ def main(cfg: DictConfig):
                 # Average the loss over the batch for a stable gradient
                 loss = tf.reduce_mean(loss_vector)
 
-            if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "sequential":
+            if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "multiuploading":
                 vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, *tf_cx_theta.values(), tf_bias]
             else:
                 vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, tf_bias]
@@ -365,7 +366,7 @@ def main(cfg: DictConfig):
             
             # Save best weights
             if cfg.optimization.restore_best:
-                if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "sequential":
+                if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "multiuploading":
                     best_weights = [tf_s_scale.numpy(), *[v.numpy() for v in tf_disp_mag], 
                                     *[v.numpy() for v in tf_disp_phase], *[v.numpy() for v in tf_squeeze_mag],
                                     *[v.numpy() for v in tf_squeeze_phase], *[v.numpy() for v in tf_cx_theta.values()], 
@@ -409,7 +410,7 @@ def main(cfg: DictConfig):
             
             # Restore best weights
             if cfg.optimization.restore_best and best_weights is not None:
-                if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "sequential":
+                if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "multiuploading":
                     vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, *tf_cx_theta.values(), tf_bias]
                 else:
                     vars_ = [tf_s_scale, *tf_disp_mag, *tf_disp_phase, *tf_squeeze_mag, *tf_squeeze_phase, tf_bias]
@@ -473,8 +474,8 @@ def main(cfg: DictConfig):
             model_weights[f"squeeze_mag_{w}"] = tf_squeeze_mag[w].numpy()
             model_weights[f"squeeze_phase_{w}"] = tf_squeeze_phase[w].numpy()
         
-        # Add cx_theta parameters if using new or sequential circuit
-        if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "sequential":
+        # Add cx_theta parameters if using new or multiuploading circuit
+        if cfg.model.which_circuit == "new" or cfg.model.which_circuit == "multiuploading":
             for (a, b) in cx_pairs:
                 model_weights[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)].numpy()
         

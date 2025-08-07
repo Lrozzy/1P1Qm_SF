@@ -13,7 +13,7 @@ def validate_and_adjust_config(cfg: DictConfig) -> DictConfig:
     
     # Calculate and store particles needed based on circuit type
     particles_per_wire = getattr(cfg.model, 'particles_per_wire', 2)
-    if cfg.model.which_circuit == "sequential":
+    if cfg.model.which_circuit == "multiuploading":
         num_particles_needed = cfg.model.wires * particles_per_wire
     else:
         # Default and new circuits use one particle per wire
@@ -24,8 +24,8 @@ def validate_and_adjust_config(cfg: DictConfig) -> DictConfig:
     cfg.model.num_particles_needed = num_particles_needed
     OmegaConf.set_struct(cfg, True)   # Re-enable struct mode
     
-    # Validate sequential circuit configuration against available data
-    if cfg.model.which_circuit == "sequential":
+    # Validate multiuploading circuit configuration against available data
+    if cfg.model.which_circuit == "multiuploading":
         total_particles_needed = num_particles_needed
         
         # Check available particles in data (peek at training data)
@@ -34,10 +34,10 @@ def validate_and_adjust_config(cfg: DictConfig) -> DictConfig:
                 available_particles = f["jetConstituentsList"].shape[1]
         except Exception as e:
             print(f"Warning: Could not read data file {cfg.data.data_dir} for validation: {e}")
-            print("Skipping sequential circuit data compatibility check")
+            print("Skipping multiuploading circuit data compatibility check")
         else:
             if total_particles_needed > available_particles:
-                print(f"ERROR: Sequential encoding configuration is incompatible with data!", flush=True)
+                print(f"ERROR: Multiuploading encoding configuration is incompatible with data!", flush=True)
                 print(f"Configuration requires: {total_particles_needed} particles ({cfg.model.wires} wires × {particles_per_wire} particles_per_wire)", flush=True)
                 print(f"Data provides: {available_particles} particles per jet", flush=True)
                 print(f"", flush=True)
@@ -46,7 +46,7 @@ def validate_and_adjust_config(cfg: DictConfig) -> DictConfig:
                 print(f"  2. Reduce wires to {available_particles // particles_per_wire} or less", flush=True)
                 print(f"  3. Use data with at least {total_particles_needed} particles per jet", flush=True)
                 print(f"  4. Switch to 'new' or 'default' circuit which uses only {cfg.model.wires} particles", flush=True)
-                raise ValueError("Sequential encoding configuration incompatible with data dimensions")
+                raise ValueError("Multiuploading encoding configuration incompatible with data dimensions")
     
     # Adjust val_jets and test_jets to be divisible by batch_size and below limits
     max_val_jets = 20000

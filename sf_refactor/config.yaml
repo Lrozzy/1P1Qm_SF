@@ -14,10 +14,15 @@ model:
   dim_cutoff: 6 
   wires: 3
   # layers: 1 # not implemented yet
-  photon_modes: 3
-  which_circuit: "new"  # "default", "new", or "sequential"
-  particles_per_wire: 3  # Only used with "sequential" circuit - number of particles to encode per wire
+  photon_modes: ${model.wires}  # Default to same as wires, can be overridden
+  which_circuit: "new"  # "default", "new", or "multiuploading"
+  particles_per_wire: 2  # Only used with "multiuploading" circuit - number of particles to encode per wire
                          # Note: wires × particles_per_wire must not exceed available particles in data
+  particle_mapping: "interleaved"  # "sequential" or "interleaved" - how to map particles to wires
+                                   # sequential: wire0:[0,1], wire1:[2,3], wire2:[4,5] etc.
+                                   # interleaved: wire0:[0,4], wire1:[1,5], wire2:[2,6] etc. (for 4 wires)
+                                   
+                                   
 
 # Training parameters
 training:
