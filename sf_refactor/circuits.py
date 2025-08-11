@@ -160,6 +160,78 @@ def multiuploading_circuit(prog, wires, weights, particles_per_wire=2, particle_
     return prog
 
 
+def reuploading_circuit(prog, wires, weights, reuploads_per_wire=2):
+    """
+    Circuit with reuploading encoding — the same particle features are uploaded
+    multiple times per wire, but each upload has its own symbolic parameters.
+
+    Notes
+    - No interleaved/sequential mapping is required since the source particle per
+      wire is the same for each reupload.
+    - Expected symbolic parameter naming for the data features per wire and reupload:
+        eta_{w}_{r}, pt_{w}_{r}, phi_{w}_{r}  for wire w in [0..wires-1], reupload r in [0..reuploads_per_wire-1]
+      Even though both reuploads on a given wire will be fed the same numerical
+      particle features at runtime, they use distinct symbols so the graph can
+      represent two consecutive encodings.
+
+    Args:
+        prog: The Strawberry Fields program object.
+        wires: Number of wires in the circuit.
+        weights: A dictionary containing circuit parameters. It must include:
+            - 's_scale'
+            - per-wire Gaussian trainables: squeeze_mag_{w}, squeeze_phase_{w},
+              disp_mag_{w}, disp_phase_{w}
+            - reupload data symbols per wire: eta_{w}_{r}, pt_{w}_{r}, phi_{w}_{r}
+            - optional CX parameters: cx_theta_{a}_{b} for a<b
+        reuploads_per_wire: Number of times to reupload the same particle per wire (default 2).
+    """
+
+    # global scale parameter
+    s_scale = weights['s_scale']
+
+    # per‑mode Gaussian trainables
+    squeeze_mag   = [weights[f'squeeze_mag_{i}']   for i in range(wires)]
+    squeeze_phase = [weights[f'squeeze_phase_{i}'] for i in range(wires)]
+    disp_mag      = [weights[f'disp_mag_{i}']      for i in range(wires)]
+    disp_phase    = [weights[f'disp_phase_{i}']    for i in range(wires)]
+
+    # trainable CX coupling strengths (if provided)
+    cx_pairs = [(i, j) for i in range(wires) for j in range(i + 1, wires)]
+    cx_theta = {(a, b): weights[f"cx_theta_{a}_{b}"] for (a, b) in cx_pairs if f"cx_theta_{a}_{b}" in weights}
+
+    with prog.context as q:
+        # data-encoding with reuploads per wire
+        scale = 10.0 / (1.0 + sf.math.exp(-s_scale)) + 0.01
+        for w in range(wires):
+            for r in range(reuploads_per_wire):
+                eta_wr = weights[f"eta_{w}_{r}"]
+                pt_wr  = weights[f"pt_{w}_{r}"]
+                phi_wr = weights[f"phi_{w}_{r}"]
+
+                # Apply encoding gates for this reupload on wire w
+                Dgate(scale * pt_wr, eta_wr)      | q[w]
+                Sgate(eta_wr, pt_wr * phi_wr / 2) | q[w]
+
+        # (trainable) CX entanglers, if provided
+        for (a, b) in cx_pairs:
+            key = (a, b)
+            if key in cx_theta:
+                CXgate(cx_theta[key]) | (q[a], q[b])
+
+        # Additional entanglement layer (same structure as new_circuit)
+        all_wires_list = list(range(wires))
+        for i in range(wires):
+            idx1 = all_wires_list[i]
+            idx2 = all_wires_list[(i + 1) % wires]
+            BSgate(np.pi / 4.0, np.pi / 2.0) | (q[idx1], q[idx2])
+
+        # Final per‑mode trainable layer
+        for w in range(wires):
+            Sgate(squeeze_mag[w], squeeze_phase[w]) | q[w]
+            Dgate(disp_mag[w], disp_phase[w])       | q[w]
+
+    return prog
+
 def x8_circuit(prog, wires, weights):
     """
     X8-compatible version of new_circuit FOR SIMULATION (not hardware)!

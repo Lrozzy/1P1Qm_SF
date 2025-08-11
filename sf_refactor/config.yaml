@@ -50,7 +50,7 @@ optimization:
   lr_patience: 3  # Number of epochs to wait before reducing learning rate
   lr_factor: 0.5  # Factor to multiply learning rate by when reducing (new_lr = old_lr * factor)
   min_lr: 1e-5  # Minimum learning rate threshold (stops reducing below this)
-  min_epochs: 5  # Minimum number of epochs to train before allowing early stopping
+  min_epochs: 10  # Minimum number of epochs to train before allowing early stopping
 
 # Runtime parameters
 runtime:
