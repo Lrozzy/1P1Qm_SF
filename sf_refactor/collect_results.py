@@ -31,9 +31,12 @@ def is_high_memory_job(dim, wire):
     # High memory needed for: dim>=9 and wires>=5, or dim>=8 and wires>=7, etc.
     # This matches the logic from generate_experiment_jobs.sh
     if ((dim >= 9 and wire >= 5) or 
-        (dim >= 8 and wire >= 7) or 
-        (dim >= 7 and wire >= 8) or 
-        (dim >= 6 and wire >= 9)):
+        (dim >= 8 and wire >= 5) or 
+        (dim >= 7 and wire >= 6) or 
+        (dim >= 6 and wire >= 6) or
+        (dim >= 5 and wire >= 7) or
+        (dim >= 4 and wire >= 8) or
+        (dim >= 3 and wire >= 9)):
         return True
     return False
 
@@ -158,19 +161,28 @@ def print_table(results):
     
     # Print summary statistics
     numeric_results = []
+    best = None  # tuple: (auc, dim, wire)
+    worst = None # tuple: (auc, dim, wire)
     for dim in results.index:
         for wire in results.columns:
             val = results.loc[dim, wire]
             if val != "NF" and val not in ["RUNNING", "TO", "NOT_RUN", "ERROR"] and not pd.isna(val):
                 try:
-                    numeric_results.append(float(val))
-                except:
-                    pass
+                    auc = float(val)
+                except Exception:
+                    continue
+                numeric_results.append(auc)
+                if best is None or auc > best[0]:
+                    best = (auc, dim, wire)
+                if worst is None or auc < worst[0]:
+                    worst = (auc, dim, wire)
     
     if numeric_results:
         print(f"\nSummary Statistics ({len(numeric_results)} completed runs):")
-        print(f"  Best AUC:  {max(numeric_results):.4f}")
-        print(f"  Worst AUC: {min(numeric_results):.4f}")
+        if best is not None:
+            print(f"  Best AUC:  {best[0]:.4f} (dim: {best[1]}, wires: {best[2]})")
+        if worst is not None:
+            print(f"  Worst AUC: {worst[0]:.4f} (dim: {worst[1]}, wires: {worst[2]})")
         print(f"  Mean AUC:  {np.mean(numeric_results):.4f}")
         print(f"  Std AUC:   {np.std(numeric_results):.4f}")
 
