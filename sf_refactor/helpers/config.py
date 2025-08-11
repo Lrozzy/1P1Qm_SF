@@ -12,11 +12,11 @@ def validate_and_adjust_config(cfg: DictConfig) -> DictConfig:
     cfg.model.photon_modes = min(cfg.model.photon_modes, cfg.model.wires)
     
     # Calculate and store particles needed based on circuit type
-    particles_per_wire = getattr(cfg.model, 'particles_per_wire', 2)
+    particles_per_wire = cfg.model.particles_per_wire
     if cfg.model.which_circuit == "multiuploading":
         num_particles_needed = cfg.model.wires * particles_per_wire
     else:
-        # Default and new circuits use one particle per wire
+        # Default, new, and reuploading circuits use one particle per wire
         num_particles_needed = cfg.model.wires
     
     # Dynamically add the calculated value to the config
@@ -133,8 +133,11 @@ def print_config(cfg: DictConfig, run_name: str, seed: int):
     else:
         print("\t Sigmoid activation with trainable bias", flush=True)
     print(f"Which circuit: {cfg.model.which_circuit}", flush=True)
-    if cfg.model.which_circuit == "sequential":
+    if cfg.model.which_circuit == "multiuploading":
         print(f"Particles per wire: {cfg.model.particles_per_wire}", flush=True)
+        print(f"Particle mapping: {cfg.model.particle_mapping}", flush=True)
+    if cfg.model.which_circuit == "reuploading":
+        print(f"Reuploads per wire: {cfg.model.reuploads_per_wire}", flush=True)
     print(f"Train jets: {cfg.data.train_jets}", flush=True)
     print(f"Validation jets: {cfg.data.val_jets}", flush=True)
     print(f"Test jets: {cfg.data.test_jets}", flush=True)

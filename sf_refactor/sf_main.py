@@ -87,8 +87,8 @@ def main(cfg: DictConfig):
         prog = new_circuit(prog, cfg.model.wires, weights)
     elif cfg.model.which_circuit == "multiuploading":
         # For multiuploading encoding, we need parameters for all particles, not just one per wire
-        particles_per_wire = getattr(cfg.model, 'particles_per_wire', 2)
-        particle_mapping = getattr(cfg.model, 'particle_mapping', 'interleaved')
+        particles_per_wire = cfg.model.particles_per_wire
+        particle_mapping = cfg.model.particle_mapping
         total_particles = cfg.model.wires * particles_per_wire
         
         # Create symbolic variables for all particles
@@ -110,7 +110,7 @@ def main(cfg: DictConfig):
         prog = multiuploading_circuit(prog, cfg.model.wires, weights, particles_per_wire, particle_mapping)
     elif cfg.model.which_circuit == "reuploading":
         # Reuploading: same particle features per wire, uploaded multiple times with distinct symbols
-        reuploads_per_wire = getattr(cfg.model, 'reuploads_per_wire', 2)
+        reuploads_per_wire = cfg.model.reuploads_per_wire
 
         # Create symbolic variables for each wire and each reupload
         eta_wr = [[prog.params(f"eta_{w}_{r}") for r in range(reuploads_per_wire)] for w in range(cfg.model.wires)]
@@ -190,7 +190,7 @@ def main(cfg: DictConfig):
         
         if cfg.model.which_circuit == "multiuploading":
             # For multiuploading encoding, we need to provide parameters for all particles
-            particles_per_wire = getattr(cfg.model, 'particles_per_wire', 2)
+            particles_per_wire = cfg.model.particles_per_wire
             total_particles = cfg.model.wires * particles_per_wire
             available_particles = jet_batch.shape[1]
             
@@ -222,7 +222,7 @@ def main(cfg: DictConfig):
                     d[f"pt_{p}"]  = pt_val
         elif cfg.model.which_circuit == "reuploading":
             # For reuploading, we map the same particle features per wire to multiple reupload symbols
-            reuploads_per_wire = getattr(cfg.model, 'reuploads_per_wire', 2)
+            reuploads_per_wire = cfg.model.reuploads_per_wire
             for w in range(cfg.model.wires):
                 eta_val = scale_feature(jet_batch[:, w, 0], "eta")
                 phi_val = scale_feature(jet_batch[:, w, 1], "phi")
