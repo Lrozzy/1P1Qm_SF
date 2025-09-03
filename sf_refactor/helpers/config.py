@@ -85,8 +85,14 @@ def setup_run_name(cfg: DictConfig) -> str:
     return run_name
 
 
-def save_config_to_file(cfg: DictConfig, run_name: str, seed: int):
-    """Save configuration parameters to a file"""
+def save_config_to_file(cfg: DictConfig, run_name: str, seed: int, exclude_loss: bool = False):
+    """Save configuration parameters to a file.
+    Args:
+        cfg: OmegaConf config
+        run_name: directory/run identifier
+        seed: random seed to record
+        exclude_loss: when True, do not persist training.loss_fn in params.txt
+    """
     if not cfg.runtime.cli_test:
         os.makedirs(os.path.join(cfg.data.save_dir, run_name), exist_ok=True)
         
@@ -104,7 +110,10 @@ def save_config_to_file(cfg: DictConfig, run_name: str, seed: int):
         for section, values in params.items():
             if isinstance(values, dict):
                 for key, value in values.items():
-                    flat_params[f"{section}.{key}"] = value
+                    full_key = f"{section}.{key}"
+                    if exclude_loss and full_key == "training.loss_fn":
+                        continue
+                    flat_params[full_key] = value
             else:
                 flat_params[section] = values
         
@@ -114,8 +123,11 @@ def save_config_to_file(cfg: DictConfig, run_name: str, seed: int):
                 f.write(f"{k}: {v}\n")
 
 
-def print_config(cfg: DictConfig, run_name: str, seed: int):
-    """Print configuration parameters"""
+def print_config(cfg: DictConfig, run_name: str, seed: int, hide_loss: bool = False):
+    """Print configuration parameters.
+    Args:
+        hide_loss: when True, do not print the training loss function line
+    """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"Run started at: {now}", flush=True)
     print("PARAMETERS:")
@@ -127,11 +139,12 @@ def print_config(cfg: DictConfig, run_name: str, seed: int):
     print(f"Epochs: {cfg.training.epochs}", flush=True)
     print(f"Learning rate: {cfg.training.learning_rate}", flush=True)
     print(f"Batch size: {cfg.training.batch_size}", flush=True)
-    print(f"Loss function: {cfg.training.loss_fn}", flush=True)
-    if cfg.training.tanh:
-        print("\t Tanh activation: True", flush=True)
-    else:
-        print("\t Sigmoid activation with trainable bias", flush=True)
+    if not hide_loss:
+        print(f"Loss function: {cfg.training.loss_fn}", flush=True)
+        if cfg.training.tanh:
+            print("\t Tanh activation: True", flush=True)
+        else:
+            print("\t Sigmoid activation with trainable bias", flush=True)
     print(f"Which circuit: {cfg.model.which_circuit}", flush=True)
     if cfg.model.which_circuit == "multiuploading":
         print(f"Particles per wire: {cfg.model.particles_per_wire}", flush=True)

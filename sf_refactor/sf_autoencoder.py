@@ -57,11 +57,11 @@ def main(cfg: DictConfig):
     # Setup run name
     run_name = setup_run_name(cfg)
 
-    # Save configuration to file
-    save_config_to_file(cfg, run_name, seed)
+    # Save configuration to file (exclude classifier loss fields for autoencoder)
+    save_config_to_file(cfg, run_name, seed, exclude_loss=True)
 
-    # Print configuration
-    print_config(cfg, run_name, seed)
+    # Print configuration (hide loss line for autoencoder)
+    print_config(cfg, run_name, seed, hide_loss=True)
 
     # Initialize memory profiler
     profiler = create_memory_profiler(cfg, run_name)
