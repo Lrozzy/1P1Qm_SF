@@ -3,37 +3,50 @@ import numpy as np
 import tensorflow as tf
 
 # DATA IS ALREADY SORTED BY PT (highest to lowest)
-def load_data(path, max_jets, num_particles):
+def load_data(path, max_jets, num_particles, filter_label=None):
     """
     Load jet data from HDF5 file.
-    
+
     Args:
         path: Path to HDF5 file
-        max_jets: Maximum number of jets to load
+        max_jets: Maximum number of jets to load (after optional filtering)
         num_particles: Number of particles to load per jet
-    
+        filter_label: If set to 0 or 1, only return jets with this label. If None, return all.
+
     Returns:
         Tuple of (jet_constituents, truth_labels, jet_pt) as TensorFlow tensors
     """
     with h5py.File(path, "r") as f:
         available_particles = f["jetConstituentsList"].shape[1]
-        
+
         if num_particles > available_particles:
             raise ValueError(
                 f"Requested {num_particles} particles per jet "
                 f"but data only has {available_particles} particles per jet"
             )
-        
-        jet_constituents = f["jetConstituentsList"][:max_jets, :num_particles, :]
-        truth_labels = f["truth_labels"][:max_jets].astype(np.float32)
-        
-        # Load jet pT (first column of jetFeatures)
-        jet_features = f["jetFeatures"][:max_jets, :]
-        jet_pt = jet_features[:, 0].astype(np.float32)
-    
-    return (tf.convert_to_tensor(jet_constituents, tf.float32), 
-            tf.convert_to_tensor(truth_labels, tf.float32),
-            tf.convert_to_tensor(jet_pt, tf.float32))
+
+        # Read full arrays first to apply optional filtering while preserving order
+        jet_constituents_all = f["jetConstituentsList"][:, :num_particles, :]
+        truth_labels_all = f["truth_labels"][:].astype(np.float32)
+        jet_features_all = f["jetFeatures"][:, :]
+        jet_pt_all = jet_features_all[:, 0].astype(np.float32)
+
+        if filter_label is not None:
+            mask = truth_labels_all == float(filter_label)
+            jet_constituents_all = jet_constituents_all[mask]
+            truth_labels_all = truth_labels_all[mask]
+            jet_pt_all = jet_pt_all[mask]
+
+        # Apply max_jets limit after filtering
+        jet_constituents = jet_constituents_all[:max_jets]
+        truth_labels = truth_labels_all[:max_jets]
+        jet_pt = jet_pt_all[:max_jets]
+
+    return (
+        tf.convert_to_tensor(jet_constituents, tf.float32),
+        tf.convert_to_tensor(truth_labels, tf.float32),
+        tf.convert_to_tensor(jet_pt, tf.float32),
+    )
 
 def get_loss_fn(photons, label, bias=0.0, tanh = False, loss_type="bce", dim_cutoff=None):
     """

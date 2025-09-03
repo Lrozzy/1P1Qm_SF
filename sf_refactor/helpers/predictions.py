@@ -60,3 +60,24 @@ def save_test_predictions(cfg, run_name, prob_test, pred_test, labels_test, jet_
                 row += f",{eta:.6f},{phi:.6f},{pt:.6f}"
             
             f.write(row + "\n")
+
+def save_anomaly_scores(cfg, run_name, anomaly_scores):
+    """
+    Save anomaly scores to a file.
+    
+    Args:
+        cfg: Configuration object
+        run_name: Name of the current run
+        anomaly_scores: Array of anomaly scores
+    """
+    scores_path = os.path.join(cfg.data.save_dir, run_name, "anomaly_scores.txt")
+    print(f"Saving anomaly scores to {scores_path}...", flush=True)
+    
+    with open(scores_path, "w") as f:
+        f.write("# Anomaly scores\n")
+        f.write("# Format: CSV-like with named columns for easy parsing\n")
+        f.write("#\n")
+        f.write("jet_idx,anomaly_score\n")
+        
+        for i, score in enumerate(anomaly_scores):
+            f.write(f"{i},{score:.6f}\n")

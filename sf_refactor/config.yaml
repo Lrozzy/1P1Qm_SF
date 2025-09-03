@@ -62,3 +62,10 @@ runtime:
 profiling:
   memory_enabled: true
   memory_log_frequency: 5  # Log memory every N batches (0 = only epochs)
+
+# Autoencoder settings
+autoencoder:
+  # Indexes of qumodes to be "trashed" (pushed to vacuum)
+  trash_modes: [0, 1]
+  # Label to train on exclusively (0=background, 1=signal). For anomaly detection, use 0.
+  train_label: 0
