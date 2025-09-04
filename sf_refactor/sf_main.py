@@ -354,7 +354,7 @@ def main(cfg: DictConfig):
                 profiler.log_memory(f"Epoch {epoch+1}, batch {step+1}/{len(train_dataset)}")
 
             if not cfg.runtime.cli_test and (step + 1) % 10 == 0:
-                print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Batch Loss: {loss:.4f}", flush=True)        # -------- validation step at the end of each epoch ----------
+                print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Batch Loss: {loss:.4f}", flush=True)    
         avg_train_loss = epoch_loss / num_steps
         
         # Save gradients for the epoch
