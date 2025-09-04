@@ -20,8 +20,17 @@ memory_limits[3]=10
 needs_high_memory() {
     local dim=$1
     local wire=$2
-    if [[ ($dim -ge 9 && $wire -ge 5) || ($dim -ge 8 && $wire -ge 7) || ($dim -ge 7 && $wire -ge 8) || ($dim -ge 6 && $wire -ge 9) ]]; then
-        return 0  # true - needs high memory
+    # Explicit high-memory regions (diagonal band) + previous top-right + special-case rerun
+    if [[ \
+          ($dim -ge 9 && $wire -ge 5) \
+       || ($dim -eq 8 && $wire -ge 6) \
+       || ($dim -eq 7 && $wire -ge 6) \
+       || ($dim -eq 6 && $wire -ge 6) \
+       || ($dim -eq 5 && $wire -ge 7) \
+       || ($dim -eq 4 && $wire -ge 8) \
+       || ($dim -eq 3 && $wire -ge 10) \
+       ]]; then
+        return 0  # true - needs high memory (CPU)
     else
         return 1  # false - can use GPU
     fi
@@ -119,6 +128,9 @@ echo "--------------------"
 nvidia-smi || true
 which python
 python -c "import tensorflow as tf; print('TensorFlow:', tf.__version__); print('GPU:', tf.config.list_physical_devices('GPU'))"
+
+# Overwrite previous log to avoid appending old content
+rm -f ${log_file}
 
 python /rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/sf_autoencoder.py \
     model.dim_cutoff=${dim} \
