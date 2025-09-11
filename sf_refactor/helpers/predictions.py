@@ -17,7 +17,8 @@ def save_test_predictions(cfg, run_name, prob_test, pred_test, labels_test, jet_
         jet_pt_test: Array of jet pT values
         jets_test: Array of jet particle features
     """
-    predictions_path = os.path.join(cfg.data.save_dir, run_name, "test_predictions.txt")
+    run_dir = getattr(cfg.runtime, 'run_dir', os.path.join(cfg.data.save_dir, run_name))
+    predictions_path = os.path.join(run_dir, "test_predictions.txt")
     print(f"Saving test predictions to {predictions_path}...", flush=True)
     
     with open(predictions_path, "w") as f:
@@ -70,7 +71,8 @@ def save_anomaly_scores(cfg, run_name, anomaly_scores):
         run_name: Name of the current run
         anomaly_scores: Array of anomaly scores
     """
-    scores_path = os.path.join(cfg.data.save_dir, run_name, "anomaly_scores.txt")
+    run_dir = getattr(cfg.runtime, 'run_dir', os.path.join(cfg.data.save_dir, run_name))
+    scores_path = os.path.join(run_dir, "anomaly_scores.txt")
     print(f"Saving anomaly scores to {scores_path}...", flush=True)
     
     with open(scores_path, "w") as f:

@@ -15,10 +15,12 @@ from helpers.config import (
     print_config,
     save_config_to_file,
     setup_run_name,
+    create_run_directory,
     validate_and_adjust_config,
 )
 from helpers.memory_profiler import create_memory_profiler
 from helpers.model_utils import save_quantum_model
+from helpers.plotting import plot_roc_curve, plot_score_histogram
 from helpers.predictions import save_test_predictions, save_anomaly_scores
 from helpers.utils import load_data
 
@@ -54,8 +56,8 @@ def main(cfg: DictConfig):
     # Validate and adjust configuration
     cfg = validate_and_adjust_config(cfg)
 
-    # Setup run name
-    run_name = setup_run_name(cfg)
+    # Setup run directory (autoencoder) with day grouping and time-only run name
+    run_name = create_run_directory(cfg, "autoencoder")
 
     # Save configuration to file (exclude classifier loss fields for autoencoder)
     save_config_to_file(cfg, run_name, seed, exclude_loss=True)
@@ -450,6 +452,14 @@ def main(cfg: DictConfig):
             cfg, run_name, score_test, pred_test, labels_test, jet_pt_test, jets_test
         )
         save_anomaly_scores(cfg, run_name, score_test)
+        # Generate and save plots (ROC and score histogram)
+        plots_dir = os.path.join(cfg.runtime.run_dir, 'plots')
+        os.makedirs(plots_dir, exist_ok=True)
+        roc_plot_path = os.path.join(plots_dir, 'roc_curve.png')
+        score_hist_path = os.path.join(plots_dir, 'score_histogram.png')
+        plot_roc_curve(labels_test.numpy(), score_test, roc_plot_path)
+        plot_score_histogram(labels_test.numpy(), score_test, score_hist_path)
+        print(f"Plots saved to {plots_dir}")
 
     if profiler:
         profiler.log_memory("Script end")

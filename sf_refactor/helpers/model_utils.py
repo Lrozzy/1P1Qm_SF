@@ -21,8 +21,16 @@ def save_quantum_model(model_weights, config, run_name, save_dir):
         run_name: Name of the training run
         save_dir: Base directory for saving models
     """
+    # Resolve run directory (prefer runtime.run_dir if present)
+    try:
+        run_dir = getattr(config.runtime, 'run_dir', None)
+    except Exception:
+        run_dir = None
+    if not run_dir:
+        run_dir = os.path.join(save_dir, run_name)
+
     # Create model directory
-    model_dir = os.path.join(save_dir, run_name, "model")
+    model_dir = os.path.join(run_dir, "model")
     os.makedirs(model_dir, exist_ok=True)
     
     # Save model weights

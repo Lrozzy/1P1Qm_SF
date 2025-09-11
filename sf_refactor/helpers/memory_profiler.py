@@ -156,6 +156,7 @@ def create_memory_profiler(cfg, run_name=None):
         
     log_file = None
     if not cfg.runtime.cli_test and run_name:
-        log_file = os.path.join(cfg.data.save_dir, run_name, "memory_profile.txt")
+        run_dir = getattr(cfg.runtime, 'run_dir', os.path.join(cfg.data.save_dir, run_name))
+        log_file = os.path.join(run_dir, "memory_profile.txt")
     
     return MemoryProfiler(log_file=log_file, cli_test=cfg.runtime.cli_test)

@@ -1,4 +1,11 @@
-"""Configuration management utilities for Hydra-based SF training."""
+"""Configuration management utilities for Hydra-based SF training.
+
+This module centralizes save path creation. It now supports:
+ - Separate base save dirs for classifier and autoencoder (from config)
+ - Day grouping (YYYY_MM_DD) under the base dir
+ - Time-only run directory names (HH_MM or HH_MM_SS when needed)
+All code should reference cfg.runtime.run_dir as the concrete run output dir.
+"""
 
 import os
 import h5py
@@ -67,21 +74,73 @@ def validate_and_adjust_config(cfg: DictConfig) -> DictConfig:
     return cfg
 
 
+def _get_base_save_dir(cfg: DictConfig, exp_type: str) -> str:
+    """Resolve base save dir from config for given experiment type."""
+    if exp_type == "autoencoder":
+        return getattr(cfg.data, "autoencoder_save_dir", cfg.data.save_dir)
+    return getattr(cfg.data, "classifier_save_dir", cfg.data.save_dir)
+
+
 def setup_run_name(cfg: DictConfig) -> str:
-    """Setup unique run name with datetime and handle existing directories"""
-    now_str = datetime.now().strftime("%Y_%m_%d_%H_%M")
-    
+    """Return a time-only run name with optional user suffix.
+
+    Format: HH_MM or HH_MM_<suffix>. Seconds will be automatically added by
+    create_run_directory() if needed to avoid collisions.
+    """
+    time_str = datetime.now().strftime("%H_%M")
     if cfg.runtime.run_name:
-        base_run_name = f"{now_str}_{cfg.runtime.run_name}"
-    else:
-        base_run_name = now_str
-    
+        return f"{time_str}_{cfg.runtime.run_name}"
+    return time_str
+
+
+def create_run_directory(cfg: DictConfig, exp_type: str) -> str:
+    """Create and register the concrete output directory for this run.
+
+    Directory layout:
+      <base>/<YYYY_MM_DD>/<HH_MM[_SS][_suffix]>
+
+    - base is selected by exp_type via config:
+        data.classifier_save_dir or data.autoencoder_save_dir
+    - Also sets cfg.runtime.run_dir to this absolute path for global use.
+    - Returns the final run_name (time portion incl. optional seconds/suffix).
+    """
+    # Day folder
+    day_str = datetime.now().strftime("%Y_%m_%d")
+    base_dir = _get_base_save_dir(cfg, exp_type)
+    day_dir = os.path.join(base_dir, day_str)
+    if not getattr(cfg.runtime, 'cli_test', False):
+        os.makedirs(day_dir, exist_ok=True)
+
+    # Start from time-only name (with optional user suffix)
+    base_run_name = setup_run_name(cfg)  # HH_MM[_suffix]
     run_name = base_run_name
-    i = 1
-    while os.path.exists(f'{cfg.data.save_dir}/{run_name}'):
-        run_name = f"{base_run_name}_{i}"
-        i += 1
-    
+
+    # Ensure uniqueness within the day; if exists, add seconds; if still, add _1, _2...
+    candidate = os.path.join(day_dir, run_name)
+    if os.path.exists(candidate):
+        # Add seconds to differentiate runs within the same minute
+        sec_str = datetime.now().strftime("%S")
+        run_name = f"{base_run_name}_{sec_str}"
+        candidate = os.path.join(day_dir, run_name)
+        i = 1
+        while os.path.exists(candidate):
+            run_name = f"{base_run_name}_{sec_str}_{i}"
+            candidate = os.path.join(day_dir, run_name)
+            i += 1
+
+    # Create concrete run directory and attach to cfg for global reference
+    if not getattr(cfg.runtime, 'cli_test', False):
+        os.makedirs(candidate, exist_ok=True)
+
+    # Store canonical references for downstream helpers
+    OmegaConf.set_struct(cfg, False)
+    cfg.runtime.run_dir = candidate
+    cfg.runtime.run_name = run_name
+    cfg.runtime.exp_type = exp_type
+    # Maintain old save_dir for backward compatibility/printing
+    cfg.data.save_dir = _get_base_save_dir(cfg, exp_type)
+    OmegaConf.set_struct(cfg, True)
+
     return run_name
 
 
@@ -94,17 +153,23 @@ def save_config_to_file(cfg: DictConfig, run_name: str, seed: int, exclude_loss:
         exclude_loss: when True, do not persist training.loss_fn in params.txt
     """
     if not cfg.runtime.cli_test:
-        os.makedirs(os.path.join(cfg.data.save_dir, run_name), exist_ok=True)
-        
+        # Use resolved run_dir (single source of truth)
+        run_dir = getattr(cfg.runtime, "run_dir", os.path.join(cfg.data.save_dir, run_name))
+        os.makedirs(run_dir, exist_ok=True)
+
         # Get current date and time
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # Convert config to dict and add runtime info
         params = OmegaConf.to_container(cfg, resolve=True)
         params['run_start_time'] = now
         params['seed'] = seed
         params['run_name'] = run_name
-        
+        params['run_dir'] = getattr(cfg.runtime, 'run_dir', '')
+        # Include exp_type only if explicitly set by the script
+        if hasattr(cfg.runtime, 'exp_type'):
+            params['exp_type'] = cfg.runtime.exp_type
+
         # Flatten the nested config for easier reading
         flat_params = {}
         for section, values in params.items():
@@ -116,8 +181,8 @@ def save_config_to_file(cfg: DictConfig, run_name: str, seed: int, exclude_loss:
                     flat_params[full_key] = value
             else:
                 flat_params[section] = values
-        
-        params_path = os.path.join(cfg.data.save_dir, run_name, "params.txt")
+
+        params_path = os.path.join(run_dir, "params.txt")
         with open(params_path, "w") as f:
             for k, v in flat_params.items():
                 f.write(f"{k}: {v}\n")

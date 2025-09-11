@@ -41,7 +41,11 @@ data:
   data_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/flat_train/TTBar+ZJets_flat.h5"
   val_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/flat_val/TTBar+ZJets_flat.h5"
   test_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/flat_test/TTBar+ZJets_flat.h5"
+  # Deprecated: unified save_dir kept for backward compatibility in readers.
   save_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/saved_models_sf"
+  # New: separate base directories for classifier and autoencoder outputs
+  classifier_save_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/saved_models_sf/classifier"
+  autoencoder_save_dir: "/rds/general/user/lr1424/home/1P1Qm_SF/sf_refactor/saved_models_sf/autoencoder"
 
 # Early stopping and learning rate parameters
 optimization:

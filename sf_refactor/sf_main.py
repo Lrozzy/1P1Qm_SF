@@ -7,7 +7,7 @@ from omegaconf import DictConfig
 from helpers.plotting import * 
 from circuits import default_circuit, new_circuit, multiuploading_circuit, reuploading_circuit
 from helpers.utils import load_data, get_loss_fn
-from helpers.config import validate_and_adjust_config, setup_run_name, save_config_to_file, print_config
+from helpers.config import validate_and_adjust_config, setup_run_name, save_config_to_file, print_config, create_run_directory
 from helpers.memory_profiler import create_memory_profiler
 from helpers.model_utils import save_quantum_model
 from helpers.predictions import save_test_predictions
@@ -29,8 +29,8 @@ def main(cfg: DictConfig):
     # Validate and adjust configuration
     cfg = validate_and_adjust_config(cfg)
     
-    # Setup run name
-    run_name = setup_run_name(cfg)
+    # Setup run directory (classifier) with day grouping and time-only run name
+    run_name = create_run_directory(cfg, "classifier")
     
     # Save configuration to file
     save_config_to_file(cfg, run_name, seed)
@@ -359,7 +359,7 @@ def main(cfg: DictConfig):
         
         # Save gradients for the epoch
         if not cfg.runtime.cli_test:
-            gradients_path = os.path.join(cfg.data.save_dir, run_name, "gradients.txt")
+            gradients_path = os.path.join(cfg.runtime.run_dir, "gradients.txt")
             with open(gradients_path, "a") as f:
                 f.write(f"--- Epoch {epoch+1} ---\n")
                 for name, norm_list in epoch_grad_norms.items():
@@ -542,10 +542,10 @@ def main(cfg: DictConfig):
     print(f"Final test Accuracy: {accuracy_test:.4f}", flush=True)
 
     if not cfg.runtime.cli_test:
-    # Save predictions and inputs to file
+        # Save predictions and inputs to file
         save_test_predictions(cfg, run_name, prob_test, pred_test, labels_test, jet_pt_test, jets_test)
-    # Generate and save plots
-        plots_dir = os.path.join(cfg.data.save_dir, run_name, 'plots')
+        # Generate and save plots
+        plots_dir = os.path.join(cfg.runtime.run_dir, 'plots')
         os.makedirs(plots_dir, exist_ok=True)
         roc_plot_path = os.path.join(plots_dir, 'roc_curve.png')
         score_hist_path = os.path.join(plots_dir, 'score_histogram.png')
