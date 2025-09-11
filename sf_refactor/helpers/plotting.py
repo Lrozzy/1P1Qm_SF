@@ -73,3 +73,55 @@ def plot_score_histogram(labels, scores, save_path):
     plt.legend(loc='upper left')
     plt.savefig(save_path)
     plt.close()
+
+
+def plot_mean_photon_evolution(steps_by_mode, values_by_mode, save_path, target_points=1000):
+    """Plot evolution of the average mean photon number over trash modes.
+
+    Aggregates per-step values across modes and plots a single averaged curve.
+
+    Args:
+        steps_by_mode: dict[int, list[int]] mapping mode index -> step indices
+        values_by_mode: dict[int, list[float]] mapping mode index -> mean photon values
+        save_path: path to save the PNG
+        target_points: optional max points for plotting (downsample if exceeded)
+    """
+    # Aggregate values by step across modes
+    agg = {}
+    for mode, steps in steps_by_mode.items():
+        vals = values_by_mode.get(mode, [])
+        for s, v in zip(steps, vals):
+            agg.setdefault(s, []).append(v)
+
+    if not agg:
+        # Nothing to plot
+        plt.figure()
+        plt.title("Mean photon evolution (avg over trash modes)")
+        plt.text(0.5, 0.5, "No data", ha='center', va='center')
+        plt.axis('off')
+        plt.savefig(save_path)
+        plt.close()
+        return
+
+    steps_sorted = np.array(sorted(agg.keys()), dtype=float)
+    avg_vals = np.array([np.mean(agg[s]) for s in steps_sorted], dtype=float)
+
+    # Optional downsampling for readability
+    if target_points and steps_sorted.size > target_points:
+        stride = int(np.ceil(steps_sorted.size / float(target_points)))
+        steps_pl = steps_sorted[::stride]
+        avg_pl = avg_vals[::stride]
+    else:
+        steps_pl = steps_sorted
+        avg_pl = avg_vals
+
+    plt.figure()
+    plt.plot(steps_pl, avg_pl, lw=2, label="avg(trash modes)")
+    plt.xlabel("Training step")
+    plt.ylabel("Mean photon number ⟨n⟩")
+    plt.title("Mean photon evolution (avg over trash modes)")
+    plt.legend(loc="best")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()

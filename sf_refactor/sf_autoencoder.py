@@ -20,7 +20,7 @@ from helpers.config import (
 )
 from helpers.memory_profiler import create_memory_profiler
 from helpers.model_utils import save_quantum_model
-from helpers.plotting import plot_roc_curve, plot_score_histogram
+from helpers.plotting import plot_roc_curve, plot_score_histogram, plot_mean_photon_evolution
 from helpers.predictions import save_test_predictions, save_anomaly_scores
 from helpers.utils import load_data
 
@@ -246,6 +246,11 @@ def main(cfg: DictConfig):
             f"Trash modes {trash_modes} exceed number of wires {cfg.model.wires}."
         )
 
+    # Tracking containers for per-step mean photon numbers on trash modes
+    mean_photon_steps = {m: [] for m in trash_modes}
+    mean_photon_values = {m: [] for m in trash_modes}
+    global_step = 0
+
     for epoch in range(cfg.training.epochs):
         if profiler:
             profiler.log_memory(f"Epoch {epoch+1} start")
@@ -266,8 +271,14 @@ def main(cfg: DictConfig):
 
             with tf.GradientTape() as tape:
                 state = eng.run(prog, args=make_args(jet_batch, jet_pt_batch)).state
-                # Sum mean photon on selected trash modes
+                # Sum mean photon on selected trash modes, and log per-mode values
                 p0_list = [state.mean_photon(m)[0] for m in trash_modes]
+                # Record per-mode mean photon values by global training step
+                if not cfg.runtime.cli_test:
+                    for m, val in zip(trash_modes, p0_list):
+                        mean_photon_steps[m].append(global_step)
+                        # Ensure scalar float for safe serialization later
+                        mean_photon_values[m].append(float(val.numpy()))
                 if cfg.training.batch_size == 1:
                     p0 = tf.expand_dims(tf.add_n(p0_list), axis=0)
                 else:
@@ -303,6 +314,7 @@ def main(cfg: DictConfig):
                 )
             if not cfg.runtime.cli_test and (step + 1) % 10 == 0:
                 print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Batch Loss: {loss:.4f}", flush=True)    
+            global_step += 1
         
         avg_train_loss = epoch_loss / max(1, num_steps)
 
@@ -460,6 +472,17 @@ def main(cfg: DictConfig):
         plot_roc_curve(labels_test.numpy(), score_test, roc_plot_path)
         plot_score_histogram(labels_test.numpy(), score_test, score_hist_path)
         print(f"Plots saved to {plots_dir}")
+        # Save mean photon logs and plot their evolution
+        # Write CSV with columns: step, mode, mean_photon
+        mp_csv = os.path.join(cfg.runtime.run_dir, "mean_photon_training_log.csv")
+        with open(mp_csv, "w") as f:
+            f.write("step,mode,mean_photon\n")
+            for m in trash_modes:
+                for s, v in zip(mean_photon_steps[m], mean_photon_values[m]):
+                    f.write(f"{s},{m},{v}\n")
+        mp_plot = os.path.join(plots_dir, 'mean_photon_evolution.png')
+        plot_mean_photon_evolution(mean_photon_steps, mean_photon_values, mp_plot)
+        print(f"Mean photon log saved to {mp_csv}; plot saved to {mp_plot}")
 
     if profiler:
         profiler.log_memory("Script end")
