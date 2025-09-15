@@ -313,7 +313,7 @@ def main(cfg: DictConfig):
                     f"Epoch {epoch+1}, batch {step+1}/{len(train_dataset)}"
                 )
             if not cfg.runtime.cli_test and (step + 1) % 10 == 0:
-                print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Batch Loss: {loss:.4f}", flush=True)    
+                print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Batch Loss: {loss:.4e}", flush=True)
             global_step += 1
         
         avg_train_loss = epoch_loss / max(1, num_steps)
