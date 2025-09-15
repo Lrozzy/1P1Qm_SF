@@ -10,7 +10,7 @@ import hydra
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
-from circuits import new_circuit
+from circuits import new_circuit, maximally_entangled_circuit
 from helpers.config import (
     print_config,
     save_config_to_file,
@@ -120,23 +120,45 @@ def main(cfg: DictConfig):
     phi = [prog.params(f"phi{w}") for w in range(cfg.model.wires)]
     pt = [prog.params(f"pt{w}") for w in range(cfg.model.wires)]
 
-    # Trainable CX gate parameters
-    cx_pairs = [(i, j) for i in range(cfg.model.wires) for j in range(i + 1, cfg.model.wires)]
-    cx_theta = {(a, b): prog.params(f"cx_theta_{a}_{b}") for (a, b) in cx_pairs}
+    # Circuit selection (default: new_circuit). Enable maximally entangled mesh via cfg.model.circuit/layout.
+    circuit_selector = getattr(cfg.model, "which_circuit", None)
+    use_max_ent = False
+    if isinstance(circuit_selector, str):
+        key = circuit_selector.lower()
+        use_max_ent = key in {"maximally_entangled", "max-entangled", "max_entangled", "clements_50_50", "maxent"}
+    use_max_ent = use_max_ent or bool(getattr(cfg.model, "use_maximally_entangled", False))
 
-    # Use the base classifier circuit (new_circuit)
-    weights = {
-        "s_scale": s_scale,
-        **{f"disp_mag_{w}": disp_mag[w] for w in range(cfg.model.wires)},
-        **{f"disp_phase_{w}": disp_phase[w] for w in range(cfg.model.wires)},
-        **{f"squeeze_mag_{w}": squeeze_mag[w] for w in range(cfg.model.wires)},
-        **{f"squeeze_phase_{w}": squeeze_phase[w] for w in range(cfg.model.wires)},
-        **{f"eta_{w}": eta[w] for w in range(cfg.model.wires)},
-        **{f"phi_{w}": phi[w] for w in range(cfg.model.wires)},
-        **{f"pt_{w}": pt[w] for w in range(cfg.model.wires)},
-        **{f"cx_theta_{a}_{b}": cx_theta[(a, b)] for (a, b) in cx_pairs},
-    }
-    prog = new_circuit(prog, cfg.model.wires, weights)
+    if not use_max_ent:
+        # Trainable CX gate parameters for new_circuit
+        cx_pairs = [(i, j) for i in range(cfg.model.wires) for j in range(i + 1, cfg.model.wires)]
+        cx_theta = {(a, b): prog.params(f"cx_theta_{a}_{b}") for (a, b) in cx_pairs}
+        weights = {
+            "s_scale": s_scale,
+            **{f"disp_mag_{w}": disp_mag[w] for w in range(cfg.model.wires)},
+            **{f"disp_phase_{w}": disp_phase[w] for w in range(cfg.model.wires)},
+            **{f"squeeze_mag_{w}": squeeze_mag[w] for w in range(cfg.model.wires)},
+            **{f"squeeze_phase_{w}": squeeze_phase[w] for w in range(cfg.model.wires)},
+            **{f"eta_{w}": eta[w] for w in range(cfg.model.wires)},
+            **{f"phi_{w}": phi[w] for w in range(cfg.model.wires)},
+            **{f"pt_{w}": pt[w] for w in range(cfg.model.wires)},
+            **{f"cx_theta_{a}_{b}": cx_theta[(a, b)] for (a, b) in cx_pairs},
+        }
+        prog = new_circuit(prog, cfg.model.wires, weights)
+    else:
+        # No CX for maximally entangled circuit
+        cx_pairs = []
+        cx_theta = {}
+        weights = {
+            "s_scale": s_scale,
+            **{f"disp_mag_{w}": disp_mag[w] for w in range(cfg.model.wires)},
+            **{f"disp_phase_{w}": disp_phase[w] for w in range(cfg.model.wires)},
+            **{f"squeeze_mag_{w}": squeeze_mag[w] for w in range(cfg.model.wires)},
+            **{f"squeeze_phase_{w}": squeeze_phase[w] for w in range(cfg.model.wires)},
+            **{f"eta_{w}": eta[w] for w in range(cfg.model.wires)},
+            **{f"phi_{w}": phi[w] for w in range(cfg.model.wires)},
+            **{f"pt_{w}": pt[w] for w in range(cfg.model.wires)},
+        }
+        prog = maximally_entangled_circuit(prog, cfg.model.wires, weights)
 
     # -------- Initialise variables ----------
     rnd = tf.random_uniform_initializer(-0.1, 0.1)
@@ -145,7 +167,7 @@ def main(cfg: DictConfig):
     tf_disp_phase = [tf.Variable(rnd(())) for _ in range(cfg.model.wires)]
     tf_squeeze_mag = [tf.Variable(rnd(())) for _ in range(cfg.model.wires)]
     tf_squeeze_phase = [tf.Variable(rnd(())) for _ in range(cfg.model.wires)]
-    tf_cx_theta = {(a, b): tf.Variable(rnd(())) for (a, b) in cx_pairs}
+    tf_cx_theta = {(a, b): tf.Variable(rnd(())) for (a, b) in cx_pairs} if cx_pairs else {}
 
     # -------- Feature scaling ----------
     assumed_limits = {
@@ -191,8 +213,9 @@ def main(cfg: DictConfig):
                 d[f"phi{w}"] = phi_val
                 d[f"pt{w}"] = pt_val
 
-        for (a, b) in cx_pairs:
-            d[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)]
+        if cx_pairs:
+            for (a, b) in cx_pairs:
+                d[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)]
         return d
 
     opt = tf.keras.optimizers.Adam(cfg.training.learning_rate)
@@ -237,8 +260,9 @@ def main(cfg: DictConfig):
         *[f"disp_phase_{i}" for i in range(cfg.model.wires)],
         *[f"squeeze_mag_{i}" for i in range(cfg.model.wires)],
         *[f"squeeze_phase_{i}" for i in range(cfg.model.wires)],
-        *[f"cx_theta_{a}_{b}" for a, b in cx_pairs],
     ]
+    if cx_pairs:
+        var_names.extend([f"cx_theta_{a}_{b}" for a, b in cx_pairs])
 
     trash_modes = _get_cfg_trash_modes(cfg)
     if max(trash_modes) >= cfg.model.wires:
@@ -292,8 +316,9 @@ def main(cfg: DictConfig):
                 *tf_disp_phase,
                 *tf_squeeze_mag,
                 *tf_squeeze_phase,
-                *tf_cx_theta.values(),
             ]
+            if tf_cx_theta:
+                vars_.extend(list(tf_cx_theta.values()))
             grads = tape.gradient(loss, vars_)
             opt.apply_gradients(zip(grads, vars_))
 
@@ -352,8 +377,9 @@ def main(cfg: DictConfig):
                     *[v.numpy() for v in tf_disp_phase],
                     *[v.numpy() for v in tf_squeeze_mag],
                     *[v.numpy() for v in tf_squeeze_phase],
-                    *[v.numpy() for v in tf_cx_theta.values()],
                 ]
+                if tf_cx_theta:
+                    best_weights.extend([v.numpy() for v in tf_cx_theta.values()])
         else:
             patience_counter += 1
             lr_patience_counter += 1
@@ -387,8 +413,9 @@ def main(cfg: DictConfig):
                     *tf_disp_phase,
                     *tf_squeeze_mag,
                     *tf_squeeze_phase,
-                    *tf_cx_theta.values(),
                 ]
+                if tf_cx_theta:
+                    vars_.extend(list(tf_cx_theta.values()))
                 for var, w in zip(vars_, best_weights):
                     var.assign(w)
                 print(f"Restored best weights with Val AUC: {best_val_auc:.4f}", flush=True)
@@ -411,8 +438,9 @@ def main(cfg: DictConfig):
             model_weights[f"disp_phase_{w}"] = tf_disp_phase[w].numpy()
             model_weights[f"squeeze_mag_{w}"] = tf_squeeze_mag[w].numpy()
             model_weights[f"squeeze_phase_{w}"] = tf_squeeze_phase[w].numpy()
-        for (a, b) in cx_pairs:
-            model_weights[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)].numpy()
+        if cx_pairs:
+            for (a, b) in cx_pairs:
+                model_weights[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)].numpy()
         model_dir = save_quantum_model(model_weights, cfg, run_name, cfg.data.save_dir)
 
     # -------- Evaluate on test set: anomaly scores and AUC --------

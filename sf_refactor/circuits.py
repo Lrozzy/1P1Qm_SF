@@ -82,6 +82,7 @@ def new_circuit(prog, wires, weights):
         for i in range(wires):
             idx1 = all_wires_list[i]
             idx2 = all_wires_list[(i + 1) % wires]
+            # 50:50 beamsplitters
             BSgate(np.pi / 4.0, np.pi / 2.0) | (q[idx1], q[idx2]) # Further entanglement
             
         for w in range(wires):
@@ -89,6 +90,58 @@ def new_circuit(prog, wires, weights):
             Dgate(disp_mag[w], disp_phase[w]) | q[w] # Encode trainable parameters
     
     return prog
+
+
+def maximally_entangled_circuit(prog, wires, weights):
+        """
+        Same as new_circuit but WITHOUT CX gates and with a maximally mixing
+        50:50 beamsplitter mesh inspired by the Clements rectangular layout.
+
+        - Keeps the data encoding and final per‑mode Gaussian trainables identical.
+        - Replaces the single wrap‑around BS ring with depth=wires layers of
+            alternating nearest‑neighbor 50:50 BS gates:
+                layer 0: (0,1), (2,3), ...
+                layer 1: (1,2), (3,4), ...
+                layer 2: (0,1), (2,3), ... and so on
+            Each BS is fixed to 50:50: BSgate(theta=pi/4, phi=pi/2).
+        This pattern maximizes mode mixing/entanglement spread compared to a
+        single ring while remaining consistent with the Optica mesh pairing scheme.
+        """
+
+        # data constants 
+        eta  = [weights[f"eta_{i}"] for i in range(wires)]
+        pt   = [weights[f"pt_{i}"]  for i in range(wires)]
+        phi  = [weights[f"phi_{i}"] for i in range(wires)]
+
+        # global scale parameter
+        s_scale = weights["s_scale"]
+
+        # per‑mode Gaussian trainables
+        squeeze_mag   = [weights[f"squeeze_mag_{i}"]   for i in range(wires)]
+        squeeze_phase = [weights[f"squeeze_phase_{i}"] for i in range(wires)]
+        disp_mag      = [weights[f"disp_mag_{i}"]      for i in range(wires)]
+        disp_phase    = [weights[f"disp_phase_{i}"]    for i in range(wires)]
+
+        with prog.context as q:
+                # data-encoding layer (identical to new_circuit)
+                scale = 10.0 / (1.0 + sf.math.exp(-s_scale)) + 0.01
+                for w in range(wires):
+                        Dgate(scale * pt[w], eta[w])      | q[w]
+                        Sgate(eta[w], pt[w] * phi[w] / 2) | q[w]
+
+                # Clements-style alternating mesh of fixed 50:50 BS (no wrap-around)
+                depth = wires  # sufficient to strongly mix all modes
+                for layer in range(depth):
+                        start = 0 if (layer % 2 == 0) else 1
+                        for i in range(start, wires - 1, 2):
+                                BSgate(np.pi / 4.0, np.pi / 2.0) | (q[i], q[i + 1])
+
+                # final per‑mode trainables (identical to new_circuit)
+                for w in range(wires):
+                        Sgate(squeeze_mag[w], squeeze_phase[w]) | q[w]
+                        Dgate(disp_mag[w], disp_phase[w])       | q[w]
+
+        return prog
 
 
 def multiuploading_circuit(prog, wires, weights, particles_per_wire=2, particle_mapping="interleaved"):
