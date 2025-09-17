@@ -15,7 +15,7 @@ model:
   wires: 3
   # layers: 1 # not implemented yet
   photon_modes: ${model.wires}  # Default to same as wires, can be overridden
-  which_circuit: "new"  # "default", "new", "multiuploading", or "reuploading"
+  which_circuit: "new"  # "default", "new", "multiuploading", "reuploading", "maximally_entangled", or "new_entangled"
   particles_per_wire: 2  # Only used with "multiuploading" circuit - number of particles to encode per wire
                          # Note: wires × particles_per_wire must not exceed available particles in data
   particle_mapping: "interleaved"  # "sequential" or "interleaved" - how to map particles to wires

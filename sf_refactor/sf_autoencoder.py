@@ -10,7 +10,12 @@ import hydra
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
-from circuits import new_circuit, maximally_entangled_circuit
+from helpers.weights import (
+    CircuitKind,
+    make_symbolic_and_circuit,
+    make_trainables,
+    build_runtime_args,
+)
 from helpers.config import (
     print_config,
     save_config_to_file,
@@ -111,112 +116,33 @@ def main(cfg: DictConfig):
 
     # -------- symbolic circuit ----------
     prog = sf.Program(cfg.model.wires)
-    s_scale = prog.params("s_scale")
-    disp_mag = [prog.params(f"disp_mag{w}") for w in range(cfg.model.wires)]
-    disp_phase = [prog.params(f"disp_phase{w}") for w in range(cfg.model.wires)]
-    squeeze_mag = [prog.params(f"squeeze_mag{w}") for w in range(cfg.model.wires)]
-    squeeze_phase = [prog.params(f"squeeze_phase{w}") for w in range(cfg.model.wires)]
-    eta = [prog.params(f"eta{w}") for w in range(cfg.model.wires)]
-    phi = [prog.params(f"phi{w}") for w in range(cfg.model.wires)]
-    pt = [prog.params(f"pt{w}") for w in range(cfg.model.wires)]
 
-    # Circuit selection (default: new_circuit). Enable maximally entangled mesh via cfg.model.circuit/layout.
+    # Circuit selection via config; support new_entangled explicitly
     circuit_selector = getattr(cfg.model, "which_circuit", None)
-    use_max_ent = False
+    which = None
     if isinstance(circuit_selector, str):
         key = circuit_selector.lower()
-        use_max_ent = key in {"maximally_entangled", "max-entangled", "max_entangled", "clements_50_50", "maxent"}
-    use_max_ent = use_max_ent or bool(getattr(cfg.model, "use_maximally_entangled", False))
-
-    if not use_max_ent:
-        # Trainable CX gate parameters for new_circuit
-        cx_pairs = [(i, j) for i in range(cfg.model.wires) for j in range(i + 1, cfg.model.wires)]
-        cx_theta = {(a, b): prog.params(f"cx_theta_{a}_{b}") for (a, b) in cx_pairs}
-        weights = {
-            "s_scale": s_scale,
-            **{f"disp_mag_{w}": disp_mag[w] for w in range(cfg.model.wires)},
-            **{f"disp_phase_{w}": disp_phase[w] for w in range(cfg.model.wires)},
-            **{f"squeeze_mag_{w}": squeeze_mag[w] for w in range(cfg.model.wires)},
-            **{f"squeeze_phase_{w}": squeeze_phase[w] for w in range(cfg.model.wires)},
-            **{f"eta_{w}": eta[w] for w in range(cfg.model.wires)},
-            **{f"phi_{w}": phi[w] for w in range(cfg.model.wires)},
-            **{f"pt_{w}": pt[w] for w in range(cfg.model.wires)},
-            **{f"cx_theta_{a}_{b}": cx_theta[(a, b)] for (a, b) in cx_pairs},
-        }
-        prog = new_circuit(prog, cfg.model.wires, weights)
+        if key in {"maximally_entangled", "max-entangled", "max_entangled", "clements_50_50", "maxent"} or bool(getattr(cfg.model, "use_maximally_entangled", False)):
+            which = CircuitKind.MAX_ENT
+        elif key in {"new_entangled", "new-entangled", "interferometer_squeeze_interferometer", "int-s-int"}:
+            which = CircuitKind.NEW_ENT
+        else:
+            which = CircuitKind.NEW
     else:
-        # No CX for maximally entangled circuit
-        cx_pairs = []
-        cx_theta = {}
-        weights = {
-            "s_scale": s_scale,
-            **{f"disp_mag_{w}": disp_mag[w] for w in range(cfg.model.wires)},
-            **{f"disp_phase_{w}": disp_phase[w] for w in range(cfg.model.wires)},
-            **{f"squeeze_mag_{w}": squeeze_mag[w] for w in range(cfg.model.wires)},
-            **{f"squeeze_phase_{w}": squeeze_phase[w] for w in range(cfg.model.wires)},
-            **{f"eta_{w}": eta[w] for w in range(cfg.model.wires)},
-            **{f"phi_{w}": phi[w] for w in range(cfg.model.wires)},
-            **{f"pt_{w}": pt[w] for w in range(cfg.model.wires)},
-        }
-        prog = maximally_entangled_circuit(prog, cfg.model.wires, weights)
+        which = CircuitKind.NEW
+
+    import circuits as circuits_module
+    sym, circuit_fn = make_symbolic_and_circuit(prog, cfg.model.wires, which, circuits_module=circuits_module)
+    prog = circuit_fn(prog, cfg.model.wires, sym.as_weights_dict(cfg.model.wires))
+
+    # Trainable variables per circuit kind
+    trainables = make_trainables(cfg.model.wires, which)
 
     # -------- Initialise variables ----------
-    rnd = tf.random_uniform_initializer(-0.1, 0.1)
-    tf_s_scale = tf.Variable(rnd(()))
-    tf_disp_mag = [tf.Variable(rnd(())) for _ in range(cfg.model.wires)]
-    tf_disp_phase = [tf.Variable(rnd(())) for _ in range(cfg.model.wires)]
-    tf_squeeze_mag = [tf.Variable(rnd(())) for _ in range(cfg.model.wires)]
-    tf_squeeze_phase = [tf.Variable(rnd(())) for _ in range(cfg.model.wires)]
-    tf_cx_theta = {(a, b): tf.Variable(rnd(())) for (a, b) in cx_pairs} if cx_pairs else {}
-
-    # -------- Feature scaling ----------
-    assumed_limits = {
-        "pt": [1e-4, 3000.0],
-        "eta": [-0.8, 0.8],
-        "phi": [-0.8, 0.8],
-    }
-    feature_limits = {
-        "pt": [0.0, 1.0],
-        "eta": [-np.pi, np.pi],
-        "phi": [-np.pi, np.pi],
-    }
-
-    def scale_feature(value, name):
-        a_min, a_max = assumed_limits[name]
-        f_min, f_max = feature_limits[name]
-        return (value - a_min) / (a_max - a_min) * (f_max - f_min) + f_min
-
-    def scale_pt_by_jet(particle_pts, jet_pt):
-        return particle_pts / jet_pt[:, np.newaxis]
+    # Trainables created above in trainables
 
     def make_args(jet_batch, jet_pt_batch):
-        squeeze_batch = jet_batch.shape[0] == 1
-
-        d = {"s_scale": tf_s_scale}
-        for w in range(cfg.model.wires):
-            d[f"disp_mag{w}"] = tf_disp_mag[w]
-            d[f"disp_phase{w}"] = tf_disp_phase[w]
-            d[f"squeeze_mag{w}"] = tf_squeeze_mag[w]
-            d[f"squeeze_phase{w}"] = tf_squeeze_phase[w]
-
-        for w in range(cfg.model.wires):
-            eta_val = scale_feature(jet_batch[:, w, 0], "eta")
-            phi_val = scale_feature(jet_batch[:, w, 1], "phi")
-            pt_val = scale_pt_by_jet(jet_batch[:, w, 2], jet_pt_batch)
-
-            if squeeze_batch:
-                d[f"eta{w}"] = tf.squeeze(eta_val)
-                d[f"phi{w}"] = tf.squeeze(phi_val)
-                d[f"pt{w}"] = tf.squeeze(pt_val)
-            else:
-                d[f"eta{w}"] = eta_val
-                d[f"phi{w}"] = phi_val
-                d[f"pt{w}"] = pt_val
-
-        if cx_pairs:
-            for (a, b) in cx_pairs:
-                d[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)]
-        return d
+        return build_runtime_args(cfg.model.wires, jet_batch, jet_pt_batch, sym, trainables)
 
     opt = tf.keras.optimizers.Adam(cfg.training.learning_rate)
 
@@ -254,15 +180,7 @@ def main(cfg: DictConfig):
         cfg.training.batch_size, drop_remainder=True
     )
 
-    var_names = [
-        "s_scale",
-        *[f"disp_mag_{i}" for i in range(cfg.model.wires)],
-        *[f"disp_phase_{i}" for i in range(cfg.model.wires)],
-        *[f"squeeze_mag_{i}" for i in range(cfg.model.wires)],
-        *[f"squeeze_phase_{i}" for i in range(cfg.model.wires)],
-    ]
-    if cx_pairs:
-        var_names.extend([f"cx_theta_{a}_{b}" for a, b in cx_pairs])
+    var_names = trainables.var_names(cfg.model.wires)
 
     trash_modes = _get_cfg_trash_modes(cfg)
     if max(trash_modes) >= cfg.model.wires:
@@ -301,8 +219,13 @@ def main(cfg: DictConfig):
                 if not cfg.runtime.cli_test:
                     for m, val in zip(trash_modes, p0_list):
                         mean_photon_steps[m].append(global_step)
-                        # Ensure scalar float for safe serialization later
-                        mean_photon_values[m].append(float(val.numpy()))
+                        # val may be batched (shape [batch]); log batch-mean scalar
+                        try:
+                            val_mean = tf.reduce_mean(val)
+                            mean_photon_values[m].append(float(val_mean.numpy()))
+                        except Exception:
+                            # Fallback: best-effort scalar conversion
+                            mean_photon_values[m].append(float(np.mean(val.numpy())))
                 if cfg.training.batch_size == 1:
                     p0 = tf.expand_dims(tf.add_n(p0_list), axis=0)
                 else:
@@ -310,15 +233,7 @@ def main(cfg: DictConfig):
                 # loss = mean over batch of P0
                 loss = tf.reduce_mean(p0)
 
-            vars_ = [
-                tf_s_scale,
-                *tf_disp_mag,
-                *tf_disp_phase,
-                *tf_squeeze_mag,
-                *tf_squeeze_phase,
-            ]
-            if tf_cx_theta:
-                vars_.extend(list(tf_cx_theta.values()))
+            vars_ = trainables.list_vars()
             grads = tape.gradient(loss, vars_)
             opt.apply_gradients(zip(grads, vars_))
 
@@ -338,7 +253,7 @@ def main(cfg: DictConfig):
                     f"Epoch {epoch+1}, batch {step+1}/{len(train_dataset)}"
                 )
             if not cfg.runtime.cli_test and (step + 1) % 10 == 0:
-                print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Batch Loss: {loss:.4e}", flush=True)
+                print(f"  Epoch {epoch+1}/{cfg.training.epochs}, Step {step+1}/{len(train_dataset)} - Loss: {loss:.4e}", flush=True)
             global_step += 1
         
         avg_train_loss = epoch_loss / max(1, num_steps)
@@ -371,15 +286,7 @@ def main(cfg: DictConfig):
             lr_patience_counter = 0
 
             if cfg.optimization.restore_best:
-                best_weights = [
-                    tf_s_scale.numpy(),
-                    *[v.numpy() for v in tf_disp_mag],
-                    *[v.numpy() for v in tf_disp_phase],
-                    *[v.numpy() for v in tf_squeeze_mag],
-                    *[v.numpy() for v in tf_squeeze_phase],
-                ]
-                if tf_cx_theta:
-                    best_weights.extend([v.numpy() for v in tf_cx_theta.values()])
+                best_weights = trainables.export_numpy(cfg.model.wires)
         else:
             patience_counter += 1
             lr_patience_counter += 1
@@ -407,17 +314,11 @@ def main(cfg: DictConfig):
                 flush=True,
             )
             if cfg.optimization.restore_best and best_weights is not None:
-                vars_ = [
-                    tf_s_scale,
-                    *tf_disp_mag,
-                    *tf_disp_phase,
-                    *tf_squeeze_mag,
-                    *tf_squeeze_phase,
-                ]
-                if tf_cx_theta:
-                    vars_.extend(list(tf_cx_theta.values()))
-                for var, w in zip(vars_, best_weights):
-                    var.assign(w)
+                # Assign back to variables using names mapping
+                name_to_var = {n: v for n, v in zip(trainables.var_names(cfg.model.wires), trainables.list_vars())}
+                for k, val in best_weights.items():
+                    if k in name_to_var:
+                        name_to_var[k].assign(val)
                 print(f"Restored best weights with Val AUC: {best_val_auc:.4f}", flush=True)
             break
         elif patience_counter >= cfg.optimization.patience:
@@ -432,15 +333,7 @@ def main(cfg: DictConfig):
     # -------- Save model (weights only, no bias here) --------
     if not cfg.runtime.cli_test:
         print("Saving trained autoencoder model...", flush=True)
-        model_weights = {"s_scale": tf_s_scale.numpy()}
-        for w in range(cfg.model.wires):
-            model_weights[f"disp_mag_{w}"] = tf_disp_mag[w].numpy()
-            model_weights[f"disp_phase_{w}"] = tf_disp_phase[w].numpy()
-            model_weights[f"squeeze_mag_{w}"] = tf_squeeze_mag[w].numpy()
-            model_weights[f"squeeze_phase_{w}"] = tf_squeeze_phase[w].numpy()
-        if cx_pairs:
-            for (a, b) in cx_pairs:
-                model_weights[f"cx_theta_{a}_{b}"] = tf_cx_theta[(a, b)].numpy()
+        model_weights = trainables.export_numpy(cfg.model.wires)
         model_dir = save_quantum_model(model_weights, cfg, run_name, cfg.data.save_dir)
 
     # -------- Evaluate on test set: anomaly scores and AUC --------

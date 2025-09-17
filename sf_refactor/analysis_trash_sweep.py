@@ -175,11 +175,33 @@ def plot_trash_sweep_heatmap(
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     figsize: Optional[Tuple[float, float]] = None,
+    clim: Optional[Tuple[float, float]] = None,
 ):
     """Plot a heatmap for the AUC matrix.
 
-    Returns (fig, ax). Notebook-friendly: displays when in interactive backends.
+    Args:
+        df: DataFrame with index=trash_modes and columns=wires.
+        title: Plot title.
+        cmap: Matplotlib/Seaborn colormap name.
+        annotate: Whether to annotate each cell with its value.
+        fmt: Format string for annotations.
+        vmin, vmax: Explicit color scale bounds (ignored if `clim` is provided).
+        figsize: Figure size.
+        clim: Convenience tuple (low, high) for colourmap scale. If provided,
+              it overrides vmin/vmax.
+
+    Returns:
+        (fig, ax). Notebook-friendly: displays when in interactive backends.
     """
+    # Allow simple colourmap scale specification via clim=(low, high)
+    if clim is not None:
+        try:
+            vmin, vmax = float(clim[0]), float(clim[1])
+        except Exception:
+            raise ValueError("clim must be a (low, high) tuple of numbers")
+        if vmin >= vmax:
+            raise ValueError("clim low must be < high")
+
     # Determine figure size: allow override, else scale by matrix dimensions
     if figsize is None:
         default_size = (1.4 * max(6, len(df.columns)) + 3, 1.2 * max(6, len(df.index)) + 3)
