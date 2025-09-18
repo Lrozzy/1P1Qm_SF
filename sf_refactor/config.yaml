@@ -60,7 +60,19 @@ optimization:
 # Runtime parameters
 runtime:
   cli_test: false
-  run_name: null  # Will be set via command line or auto-generated
+  # Optional: parent subdirectory under the base save dir to place this run in.
+  # For autoencoder runs base = data.autoencoder_save_dir; for classifier runs base = data.classifier_save_dir.
+  # Example: with run_parent_dir: "experiments/scanA", the final path is
+  #   data.autoencoder_save_dir/experiments/scanA/<run_dir_name>
+  # For autoencoder runs, the default run directory name is "dimX_wiresY_trashZ" unless overridden by runtime.run_name.
+  run_parent_dir: null
+  # Optional: explicit run directory name (basename only, not a full path). If not provided:
+  #  - With run_parent_dir set: autoencoder defaults to dimX_wiresY_trashZ; others use time-based.
+  #  - Without run_parent_dir: time-based name under day folder.
+  run_name: null  # Can be set via command line
+  # Optional: Provide a fully-qualified run directory path to use as-is (advanced). If set, it's used directly.
+  # Typically you should prefer run_parent_dir + run_name.
+  run_dir: null
 
 # Memory profiling parameters
 profiling:

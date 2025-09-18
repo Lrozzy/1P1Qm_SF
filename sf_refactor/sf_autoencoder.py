@@ -61,8 +61,11 @@ def main(cfg: DictConfig):
     # Validate and adjust configuration
     cfg = validate_and_adjust_config(cfg)
 
-    # Setup run directory (autoencoder) with day grouping and time-only run name
-    run_name = create_run_directory(cfg, "autoencoder")
+    # Setup run directory:
+    # - If runtime.run_dir already set, use its basename as run_name
+    # - Else, create run directory (supports runtime.run_parent_dir and default naming)
+    existing_run_dir = getattr(cfg.runtime, "run_dir", None)
+    run_name = os.path.basename(existing_run_dir) if existing_run_dir else create_run_directory(cfg, "autoencoder")
 
     # Save configuration to file (exclude classifier loss fields for autoencoder)
     save_config_to_file(cfg, run_name, seed, exclude_loss=True)

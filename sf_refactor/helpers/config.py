@@ -97,40 +97,83 @@ def create_run_directory(cfg: DictConfig, exp_type: str) -> str:
     """Create and register the concrete output directory for this run.
 
     Directory layout:
-      <base>/<YYYY_MM_DD>/<HH_MM[_SS][_suffix]>
+            - Default (no override): <base>/<YYYY_MM_DD>/<HH_MM[_SS][_suffix]>
+            - With override (runtime.run_parent_dir set): <base>/<run_parent_dir>/<run_dir_name>
 
     - base is selected by exp_type via config:
         data.classifier_save_dir or data.autoencoder_save_dir
     - Also sets cfg.runtime.run_dir to this absolute path for global use.
     - Returns the final run_name (time portion incl. optional seconds/suffix).
     """
-    # Day folder
-    day_str = datetime.now().strftime("%Y_%m_%d")
-    base_dir = _get_base_save_dir(cfg, exp_type)
-    day_dir = os.path.join(base_dir, day_str)
-    if not getattr(cfg.runtime, 'cli_test', False):
-        os.makedirs(day_dir, exist_ok=True)
+    # If user provides a parent directory to place this run in, use it.
+    run_parent_dir = getattr(cfg.runtime, "run_parent_dir", None)
+    if run_parent_dir:
+        base_root = _get_base_save_dir(cfg, exp_type)
+        # Ensure the parent dir is nested under base (strip leading '/'). Allow nested segments.
+        parent_rel = str(run_parent_dir).lstrip(os.sep)
+        base_dir = os.path.join(base_root, parent_rel)
+        if not getattr(cfg.runtime, 'cli_test', False):
+            os.makedirs(base_dir, exist_ok=True)
 
-    # Start from time-only name (with optional user suffix)
-    base_run_name = setup_run_name(cfg)  # HH_MM[_suffix]
-    run_name = base_run_name
+        # Determine run directory name
+        if getattr(cfg.runtime, "run_name", None):
+            run_name = cfg.runtime.run_name
+        else:
+            # Default naming for autoencoder: dimX_wiresY_trashZ
+            if exp_type == "autoencoder":
+                dim = getattr(cfg.model, "dim_cutoff", "?")
+                wires = getattr(cfg.model, "wires", "?")
+                # Try to read trash modes; default to 0 if unavailable
+                try:
+                    trash_modes = list(getattr(cfg.autoencoder, "trash_modes", []))
+                    trash_count = len(trash_modes)
+                except Exception:
+                    trash_count = 0
+                run_name = f"dim{dim}_wires{wires}_trash{trash_count}"
+            else:
+                # For non-autoencoder experiments, fall back to time-based naming
+                run_name = setup_run_name(cfg)
 
-    # Ensure uniqueness within the day; if exists, add seconds; if still, add _1, _2...
-    candidate = os.path.join(day_dir, run_name)
-    if os.path.exists(candidate):
-        # Add seconds to differentiate runs within the same minute
-        sec_str = datetime.now().strftime("%S")
-        run_name = f"{base_run_name}_{sec_str}"
+        candidate = os.path.join(base_dir, run_name)
+        # Ensure uniqueness by appending _1, _2, ... if needed
+        if os.path.exists(candidate):
+            i = 1
+            base_run_name = run_name
+            while os.path.exists(candidate):
+                run_name = f"{base_run_name}_{i}"
+                candidate = os.path.join(base_dir, run_name)
+                i += 1
+
+        if not getattr(cfg.runtime, 'cli_test', False):
+            os.makedirs(candidate, exist_ok=True)
+    else:
+        # Default behavior: group by day and use time-based names
+        day_str = datetime.now().strftime("%Y_%m_%d")
+        base_dir = _get_base_save_dir(cfg, exp_type)
+        day_dir = os.path.join(base_dir, day_str)
+        if not getattr(cfg.runtime, 'cli_test', False):
+            os.makedirs(day_dir, exist_ok=True)
+
+        # Start from time-only name (with optional user suffix)
+        base_run_name = setup_run_name(cfg)  # HH_MM[_suffix]
+        run_name = base_run_name
+
+        # Ensure uniqueness within the day; if exists, add seconds; if still, add _1, _2...
         candidate = os.path.join(day_dir, run_name)
-        i = 1
-        while os.path.exists(candidate):
-            run_name = f"{base_run_name}_{sec_str}_{i}"
+        if os.path.exists(candidate):
+            # Add seconds to differentiate runs within the same minute
+            sec_str = datetime.now().strftime("%S")
+            run_name = f"{base_run_name}_{sec_str}"
             candidate = os.path.join(day_dir, run_name)
-            i += 1
+            i = 1
+            while os.path.exists(candidate):
+                run_name = f"{base_run_name}_{sec_str}_{i}"
+                candidate = os.path.join(day_dir, run_name)
+                i += 1
 
-    # Create concrete run directory and attach to cfg for global reference
-    if not getattr(cfg.runtime, 'cli_test', False):
-        os.makedirs(candidate, exist_ok=True)
+        # Create concrete run directory and attach to cfg for global reference
+        if not getattr(cfg.runtime, 'cli_test', False):
+            os.makedirs(candidate, exist_ok=True)
 
     # Store canonical references for downstream helpers
     OmegaConf.set_struct(cfg, False)
