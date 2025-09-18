@@ -96,9 +96,12 @@ def setup_run_name(cfg: DictConfig) -> str:
 def create_run_directory(cfg: DictConfig, exp_type: str) -> str:
     """Create and register the concrete output directory for this run.
 
-    Directory layout:
+        Directory layout:
             - Default (no override): <base>/<YYYY_MM_DD>/<HH_MM[_SS][_suffix]>
             - With override (runtime.run_parent_dir set): <base>/<run_parent_dir>/<run_dir_name>
+                - If run_name not provided:
+                        autoencoder -> dimX_wiresY_trashZ
+                        classifier  -> dimX_wiresY
 
     - base is selected by exp_type via config:
         data.classifier_save_dir or data.autoencoder_save_dir
@@ -130,6 +133,10 @@ def create_run_directory(cfg: DictConfig, exp_type: str) -> str:
                 except Exception:
                     trash_count = 0
                 run_name = f"dim{dim}_wires{wires}_trash{trash_count}"
+            elif exp_type == "classifier":
+                dim = getattr(cfg.model, "dim_cutoff", "?")
+                wires = getattr(cfg.model, "wires", "?")
+                run_name = f"dim{dim}_wires{wires}"
             else:
                 # For non-autoencoder experiments, fall back to time-based naming
                 run_name = setup_run_name(cfg)
